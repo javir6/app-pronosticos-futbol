@@ -95,6 +95,29 @@ st.markdown("""
         .stButton button { min-height: 50px; font-size: 18px; }
         .stSelectbox div[data-baseweb="select"] { min-height: 50px; }
     }
+    
+    /* Estilos para forma reciente */
+    .forma-container {
+        display: flex;
+        gap: 5px;
+        margin: 10px 0;
+        flex-wrap: wrap;
+    }
+    .forma-item {
+        width: 35px;
+        height: 35px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        color: white;
+        font-weight: bold;
+        font-size: 18px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .forma-G { background-color: #2ecc71; }
+    .forma-E { background-color: #f1c40f; }
+    .forma-P { background-color: #e74c3c; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -224,8 +247,10 @@ def cargar_datos():
         return pd.DataFrame()
 
 def actualizar_csv(progreso_bar, status_text):
-    """Actualiza la base de datos con progreso detallado"""
-    temporadas = ['2526', '2425', '2324']
+    """Actualiza la base de datos con progreso detallado - PRIORIZA TEMPORADA ACTUAL"""
+    # PRIMERO la temporada actual, luego la anterior
+    temporadas = ['2526', '2425']  # 2025/26 y 2024/25
+    
     ligas = ["SP1", "SP2", "E0", "E1", "I1", "D1", "F1", "P1"]
     
     total_archivos = len(temporadas) * len(ligas)
@@ -234,33 +259,44 @@ def actualizar_csv(progreso_bar, status_text):
     errores = []
     exitosos = 0
     
+    # Contenedor para mensajes
     error_container = st.empty()
+    
+    # Mostrar qué temporadas se están descargando
+    status_text.text(f"📥 Descargando temporadas: {', '.join(temporadas)}")
     
     for t in temporadas:
         for cod in ligas:
             contador += 1
             progreso = contador / total_archivos
             progreso_bar.progress(progreso)
-            status_text.text(f"📥 Descargando: {t}/{cod} ({int(progreso*100)}%)")
+            status_text.text(f"📥 Temporada {t} - Liga {cod} ({int(progreso*100)}%)")
             
             url = f"https://www.football-data.co.uk/mmz4281/{t}/{cod}.csv"
             try:
                 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
                 response = requests.get(url, timeout=10, headers=headers)
                 
-                if response.status_code == 200 and len(response.text) > 100:
-                    df_temp = pd.read_csv(StringIO(response.text))
-                    cols = ['Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'FTR', 'Div',
-                           'HC', 'AC', 'HF', 'AF', 'HY', 'AY', 'HR', 'AR',
-                           'B365H', 'B365D', 'B365A', 'PSC', 'PSH', 'PSD', 'PSA',
-                           'WHH', 'WHD', 'WHA', 'VCH', 'VCD', 'VCA',
-                           'MaxH', 'MaxD', 'MaxA', 'AvgH', 'AvgD', 'AvgA']
-                    existentes = [c for c in cols if c in df_temp.columns]
-                    if existentes:
-                        lista_dfs.append(df_temp[existentes])
-                        exitosos += 1
+                if response.status_code == 200:
+                    if len(response.text) > 100:
+                        df_temp = pd.read_csv(StringIO(response.text))
+                        # Añadir columna de temporada para referencia
+                        df_temp['Temporada'] = t
+                        
+                        cols = ['Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'FTR', 'Div', 'Temporada',
+                               'HC', 'AC', 'HF', 'AF', 'HY', 'AY', 'HR', 'AR',
+                               'B365H', 'B365D', 'B365A', 'PSC', 'PSH', 'PSD', 'PSA',
+                               'WHH', 'WHD', 'WHA', 'VCH', 'VCD', 'VCA',
+                               'MaxH', 'MaxD', 'MaxA', 'AvgH', 'AvgD', 'AvgA']
+                        existentes = [c for c in cols if c in df_temp.columns]
+                        if existentes:
+                            lista_dfs.append(df_temp[existentes])
+                            exitosos += 1
+                    else:
+                        errores.append(f"{t}/{cod} - archivo vacío")
                 else:
-                    errores.append(f"{t}/{cod} - error")
+                    errores.append(f"{t}/{cod} - HTTP {response.status_code}")
+                    
             except Exception as e:
                 errores.append(f"{t}/{cod} - {str(e)[:50]}")
                 continue
@@ -268,11 +304,12 @@ def actualizar_csv(progreso_bar, status_text):
     status_text.text("💾 Guardando datos...")
     
     if errores:
-        with error_container.expander(f"⚠️ Ver detalles de errores ({len(errores)} archivos)"):
+        with error_container.expander(f"⚠️ Errores ({len(errores)} archivos)"):
             for err in errores[:10]:
                 st.text(f"• {err}")
     
     if lista_dfs:
+        # Backup del archivo anterior
         if os.path.exists("datos_historicos.csv"):
             fecha = datetime.now().strftime("%Y%m%d_%H%M%S")
             os.makedirs("backups", exist_ok=True)
@@ -283,6 +320,15 @@ def actualizar_csv(progreso_bar, status_text):
         
         df_final = pd.concat(lista_dfs, ignore_index=True)
         df_final.to_csv("datos_historicos.csv", index=False)
+        
+        # Mostrar resumen de temporadas descargadas
+        st.success(f"""
+        ✅ Descarga completada:
+        - {exitosos} archivos descargados
+        - Temporadas: {', '.join(temporadas)}
+        - Total partidos: {len(df_final)}
+        """)
+        
         return True, len(df_final), errores
     
     return False, 0, errores
@@ -645,8 +691,12 @@ def check_alertas(pronostico, cuotas_disponibles, value_analysis):
     
     return alertas
 
+# ============================================================================
+# FUNCIÓN CORREGIDA DE ANÁLISIS DE TENDENCIAS
+# ============================================================================
+
 def analizar_tendencias_equipo(df, equipo):
-    """Análisis detallado de forma reciente"""
+    """Análisis detallado de forma reciente con colores (CORREGIDO)"""
     partidos_recientes = df[(df['HomeTeam'] == equipo) | (df['AwayTeam'] == equipo)].tail(10)
     
     if partidos_recientes.empty:
@@ -655,13 +705,21 @@ def analizar_tendencias_equipo(df, equipo):
     resultados = []
     for _, p in partidos_recientes.iterrows():
         if p['HomeTeam'] == equipo:
-            if p['FTHG'] > p['FTAG']: resultados.append('G')
-            elif p['FTHG'] < p['FTAG']: resultados.append('P')
-            else: resultados.append('E')
+            # El equipo juega como LOCAL
+            if p['FTHG'] > p['FTAG']:
+                resultados.append('G')  # Gana como local
+            elif p['FTHG'] < p['FTAG']:
+                resultados.append('P')  # Pierde como local
+            else:
+                resultados.append('E')  # Empata como local
         else:
-            if p['FTAG'] > p['FTHG']: resultados.append('G')
-            elif p['FTAG'] < p['FTHG']: resultados.append('P')
-            else: resultados.append('E')
+            # El equipo juega como VISITANTE
+            if p['FTAG'] > p['FTHG']:
+                resultados.append('G')  # Gana como visitante
+            elif p['FTAG'] < p['FTHG']:
+                resultados.append('P')  # Pierde como visitante
+            else:
+                resultados.append('E')  # Empata como visitante
     
     return {
         'forma': ''.join(resultados),
@@ -939,28 +997,61 @@ def main():
             st.metric("💰 Mejor Cuota Visitante", "No disponible")
     
     # ========================================================================
-    # TENDENCIAS DE EQUIPOS
+    # TENDENCIAS DE EQUIPOS CON COLORES (CORREGIDO)
     # ========================================================================
     
     st.divider()
-    st.subheader("📈 FORMA RECIENTE")
+    st.subheader("📈 FORMA RECIENTE (Últimos 10 partidos)")
+    
     col_t1, col_t2 = st.columns(2)
     
     with col_t1:
-        st.markdown(f"**{local}**")
+        st.markdown(f"**🏠 {local}**")
         if tendencia_local:
-            st.markdown(f"Forma: **{tendencia_local['forma']}**")
-            st.markdown(f"V: {tendencia_local['rachas']['victorias']} "
-                       f"E: {tendencia_local['rachas']['empates']} "
-                       f"D: {tendencia_local['rachas']['derrotas']}")
+            # Mostrar forma con colores
+            forma_html = "<div class='forma-container'>"
+            for letra in tendencia_local['forma']:
+                forma_html += f"<div class='forma-item forma-{letra}'>{letra}</div>"
+            forma_html += "</div>"
+            st.markdown(forma_html, unsafe_allow_html=True)
+            
+            # Estadísticas con colores
+            col_est1, col_est2, col_est3 = st.columns(3)
+            with col_est1:
+                st.markdown(f"<p style='color: #2ecc71; font-weight: bold; font-size: 20px;'>{tendencia_local['rachas']['victorias']}</p>", unsafe_allow_html=True)
+                st.caption("Victorias")
+            with col_est2:
+                st.markdown(f"<p style='color: #f1c40f; font-weight: bold; font-size: 20px;'>{tendencia_local['rachas']['empates']}</p>", unsafe_allow_html=True)
+                st.caption("Empates")
+            with col_est3:
+                st.markdown(f"<p style='color: #e74c3c; font-weight: bold; font-size: 20px;'>{tendencia_local['rachas']['derrotas']}</p>", unsafe_allow_html=True)
+                st.caption("Derrotas")
+        else:
+            st.info("No hay datos suficientes")
     
     with col_t2:
-        st.markdown(f"**{visitante}**")
+        st.markdown(f"**🚀 {visitante}**")
         if tendencia_visit:
-            st.markdown(f"Forma: **{tendencia_visit['forma']}**")
-            st.markdown(f"V: {tendencia_visit['rachas']['victorias']} "
-                       f"E: {tendencia_visit['rachas']['empates']} "
-                       f"D: {tendencia_visit['rachas']['derrotas']}")
+            # Mostrar forma con colores
+            forma_html = "<div class='forma-container'>"
+            for letra in tendencia_visit['forma']:
+                forma_html += f"<div class='forma-item forma-{letra}'>{letra}</div>"
+            forma_html += "</div>"
+            st.markdown(forma_html, unsafe_allow_html=True)
+            
+            # Estadísticas con colores
+            col_est4, col_est5, col_est6 = st.columns(3)
+            with col_est4:
+                st.markdown(f"<p style='color: #2ecc71; font-weight: bold; font-size: 20px;'>{tendencia_visit['rachas']['victorias']}</p>", unsafe_allow_html=True)
+                st.caption("Victorias")
+            with col_est5:
+                st.markdown(f"<p style='color: #f1c40f; font-weight: bold; font-size: 20px;'>{tendencia_visit['rachas']['empates']}</p>", unsafe_allow_html=True)
+                st.caption("Empates")
+            with col_est6:
+                st.markdown(f"<p style='color: #e74c3c; font-weight: bold; font-size: 20px;'>{tendencia_visit['rachas']['derrotas']}</p>", unsafe_allow_html=True)
+                st.caption("Derrotas")
+        else:
+            st.info("No hay datos suficientes")
     
     # ========================================================================
     # VALUE BET DESTACADO
@@ -1141,13 +1232,17 @@ def main():
         
         with tab_g1:
             fig_local = crear_grafico_tendencias(d_local.tail(30), local)
-            if fig_local: st.plotly_chart(fig_local, use_container_width=True)
-            else: st.info("No hay suficientes datos")
+            if fig_local: 
+                st.plotly_chart(fig_local, use_container_width=True)
+            else: 
+                st.info("No hay suficientes datos")
         
         with tab_g2:
             fig_visit = crear_grafico_tendencias(d_visitante.tail(30), visitante)
-            if fig_visit: st.plotly_chart(fig_visit, use_container_width=True)
-            else: st.info("No hay suficientes datos")
+            if fig_visit: 
+                st.plotly_chart(fig_visit, use_container_width=True)
+            else: 
+                st.info("No hay suficientes datos")
     
     # ========================================================================
     # HISTORIAL H2H
@@ -1163,9 +1258,12 @@ def main():
             fecha = partido['Date'].strftime('%d/%m/%Y') if pd.notna(partido['Date']) else 'Fecha?'
             goles_l = int(partido['FTHG']); goles_v = int(partido['FTAG'])
             
-            if goles_l > goles_v: resultado = "🏠" if partido['HomeTeam'] == local else "🚀"
-            elif goles_l < goles_v: resultado = "🚀" if partido['HomeTeam'] == local else "🏠"
-            else: resultado = "🤝"
+            if goles_l > goles_v: 
+                resultado = "🏠" if partido['HomeTeam'] == local else "🚀"
+            elif goles_l < goles_v: 
+                resultado = "🚀" if partido['HomeTeam'] == local else "🏠"
+            else: 
+                resultado = "🤝"
             
             corners = int(partido.get('HC', 0) + partido.get('AC', 0))
             tarjetas = int(partido.get('HY', 0) + partido.get('AY', 0) + 
