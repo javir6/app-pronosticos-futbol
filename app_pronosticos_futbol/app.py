@@ -23,7 +23,6 @@ def detectar_movil():
     except:
         return False
 
-# Configuración responsive
 ES_MOVIL = detectar_movil()
 
 st.set_page_config(
@@ -33,7 +32,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed" if ES_MOVIL else "expanded"
 )
 
-# Estilos personalizados mejorados
+# Estilos personalizados
 st.markdown("""
 <style>
     .big-font { font-size:26px !important; font-weight: bold; }
@@ -43,81 +42,32 @@ st.markdown("""
     .info-box { padding: 1rem; border-radius: 0.5rem; background-color: #f0f2f6; }
     .stButton>button { width: 100%; }
     
-    /* Estilos para value bets */
     .value-alta { 
         background: linear-gradient(90deg, #27ae60 0%, #2ecc71 100%);
-        color: white; 
-        padding: 15px; 
-        border-radius: 10px; 
-        margin: 10px 0;
+        color: white; padding: 15px; border-radius: 10px; margin: 10px 0;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     .value-media { 
         background: linear-gradient(90deg, #f39c12 0%, #f1c40f 100%);
-        color: white; 
-        padding: 15px; 
-        border-radius: 10px; 
-        margin: 10px 0;
+        color: white; padding: 15px; border-radius: 10px; margin: 10px 0;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-    .value-baja { 
-        background: linear-gradient(90deg, #e74c3c 0%, #c0392b 100%);
-        color: white; 
-        padding: 15px; 
-        border-radius: 10px; 
-        margin: 10px 0;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-    
-    /* Tarjetas de partido */
-    .partido-card {
-        background-color: #f8f9fa;
-        padding: 15px;
-        border-radius: 10px;
-        border-left: 5px solid #3498db;
-        margin: 10px 0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    
-    /* Alertas */
-    .alerta-card {
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
-        font-weight: bold;
-    }
-    .alerta-roja { background-color: #ffebee; border-left: 5px solid #c62828; }
+    .alerta-card { padding: 15px; border-radius: 10px; margin: 10px 0; font-weight: bold; }
     .alerta-verde { background-color: #e8f5e9; border-left: 5px solid #2e7d32; }
     .alerta-amarilla { background-color: #fff8e1; border-left: 5px solid #ff8f00; }
     
-    /* Mejoras para móvil */
+    .forma-container { display: flex; gap: 5px; margin: 10px 0; flex-wrap: wrap; }
+    .forma-item { width: 35px; height: 35px; display: flex; align-items: center; 
+                  justify-content: center; border-radius: 8px; color: white; 
+                  font-weight: bold; font-size: 18px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .forma-G { background-color: #2ecc71; }
+    .forma-E { background-color: #f1c40f; }
+    .forma-P { background-color: #e74c3c; }
+    
     @media (max-width: 768px) {
         .stButton button { min-height: 50px; font-size: 18px; }
         .stSelectbox div[data-baseweb="select"] { min-height: 50px; }
     }
-    
-    /* Estilos para forma reciente */
-    .forma-container {
-        display: flex;
-        gap: 5px;
-        margin: 10px 0;
-        flex-wrap: wrap;
-    }
-    .forma-item {
-        width: 35px;
-        height: 35px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 8px;
-        color: white;
-        font-weight: bold;
-        font-size: 18px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .forma-G { background-color: #2ecc71; }
-    .forma-E { background-color: #f1c40f; }
-    .forma-P { background-color: #e74c3c; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -126,8 +76,6 @@ st.markdown("""
 # ============================================================================
 
 class PronosticadorFutbol:
-    """Clase que encapsula toda la lógica de pronósticos"""
-    
     def __init__(self, df_local, df_visitante, local, visitante, num_partidos=20):
         self.df_local = df_local.tail(num_partidos)
         self.df_visitante = df_visitante.tail(num_partidos)
@@ -137,46 +85,36 @@ class PronosticadorFutbol:
         self.calcular_todo()
     
     def calcular_todo(self):
-        """Calcula todas las métricas necesarias"""
         self.media_local = self._calcular_media_goles(self.df_local, self.local, 'local')
         self.media_visitante = self._calcular_media_goles(self.df_visitante, self.visitante, 'visitante')
         self.media_total = self.media_local + self.media_visitante
         
-        # Probabilidades de goles
         self.prob_local_1 = (1 - poisson.pmf(0, self.media_local)) * 100
         self.prob_visitante_1 = (1 - poisson.pmf(0, self.media_visitante)) * 100
         self.prob_ambos = (self.prob_local_1/100 * self.prob_visitante_1/100) * 100
         self.prob_over_25 = (1 - poisson.cdf(2, self.media_total)) * 100
         self.prob_under_25 = poisson.cdf(2, self.media_total) * 100
         
-        # Matriz de probabilidades para resultado
         self.matriz, self.p_win, self.p_draw, self.p_lose = self._calcular_matriz()
         
-        # Estadísticas adicionales
         self.corners_total = self._calcular_media_estadistica('HC', 'AC')
         self.tarjetas_total = self._calcular_media_estadistica(['HY', 'HR'], ['AY', 'AR'])
         self.faltas_total = self._calcular_media_estadistica('HF', 'AF')
     
     def _calcular_media_goles(self, df, equipo, condicion):
-        """Calcula media de goles con manejo de outliers"""
         if condicion == 'local':
             mask = df['HomeTeam'] == equipo
             goles = df.loc[mask, 'FTHG']
         else:
             mask = df['AwayTeam'] == equipo
             goles = df.loc[mask, 'FTAG']
-        
         if len(goles) < 3:
             return goles.mean() if not goles.empty else 0.0
-        
-        # Eliminar outliers (goles > 5)
         goles_sin_outliers = goles[goles <= 5]
         return goles_sin_outliers.mean() if not goles_sin_outliers.empty else goles.mean()
     
     def _calcular_media_estadistica(self, col_local, col_visitante):
-        """Calcula medias para estadísticas del partido"""
         total = 0
-        
         if isinstance(col_local, list):
             for col in col_local:
                 if col in self.df_local.columns:
@@ -184,7 +122,6 @@ class PronosticadorFutbol:
         else:
             if col_local in self.df_local.columns:
                 total += self.df_local[col_local].mean() if not self.df_local[col_local].isna().all() else 0
-        
         if isinstance(col_visitante, list):
             for col in col_visitante:
                 if col in self.df_visitante.columns:
@@ -192,23 +129,18 @@ class PronosticadorFutbol:
         else:
             if col_visitante in self.df_visitante.columns:
                 total += self.df_visitante[col_visitante].mean() if not self.df_visitante[col_visitante].isna().all() else 0
-        
-        return max(0, total)  # No negativos
+        return max(0, total)
     
     def _calcular_matriz(self):
-        """Calcula matriz de probabilidades Poisson"""
         p_local = [poisson.pmf(i, self.media_local) for i in range(8)]
         p_visitante = [poisson.pmf(i, self.media_visitante) for i in range(8)]
         matriz = np.outer(p_local, p_visitante)
-        
         p_win = np.sum(np.tril(matriz, -1))
         p_draw = np.diag(matriz).sum()
         p_lose = np.sum(np.triu(matriz, 1))
-        
         return matriz, p_win * 100, p_draw * 100, p_lose * 100
     
     def get_fiabilidad(self):
-        """Determina la fiabilidad del pronóstico basado en muestras"""
         muestras = len(self.df_local) + len(self.df_visitante)
         if muestras > 35:
             return "ALTA", "#2ecc71", "✅ Muestra muy representativa"
@@ -218,7 +150,6 @@ class PronosticadorFutbol:
             return "BAJA", "#e74c3c", "❌ Pocos datos, usar con precaución"
     
     def get_marcador_sugerido(self):
-        """Obtiene el marcador más probable"""
         idx_max = np.unravel_index(np.argmax(self.matriz), self.matriz.shape)
         prob_max = self.matriz[idx_max] * 100
         return idx_max[0], idx_max[1], prob_max
@@ -229,17 +160,13 @@ class PronosticadorFutbol:
 
 @st.cache_data(ttl=3600)
 def cargar_datos():
-    """Carga los datos del CSV con caché"""
     try:
         if not os.path.exists("datos_historicos.csv"):
             return pd.DataFrame()
-        
         df = pd.read_csv("datos_historicos.csv")
         df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
         df['HomeTeam'] = df['HomeTeam'].str.strip()
         df['AwayTeam'] = df['AwayTeam'].str.strip()
-        
-        # Eliminar filas sin goles
         df = df.dropna(subset=['FTHG', 'FTAG'])
         return df
     except Exception as e:
@@ -247,11 +174,92 @@ def cargar_datos():
         return pd.DataFrame()
 
 def actualizar_csv(progreso_bar, status_text):
-    """Actualiza la base de datos con progreso detallado - PRIORIZA TEMPORADA ACTUAL"""
-    # PRIMERO la temporada actual, luego la anterior
-    temporadas = ['2526', '2425']  # 2025/26 y 2024/25
+    """Actualiza la base de datos con TODAS las ligas europeas disponibles"""
+    # Temporadas: prioridad a la actual y anterior
+    temporadas = ['2526', '2425']
     
-    ligas = ["SP1", "SP2", "E0", "E1", "I1", "D1", "F1", "P1"]
+    # ========================================================================
+    # TODAS LAS LIGAS EUROPEAS (códigos football-data.co.uk)
+    # ========================================================================
+    ligas = [
+        # 🌍 TOP 5 (principales)
+        "SP1", "SP2",        # España (La Liga, La Liga 2)
+        "E0", "E1", "E2",    # Inglaterra (Premier, Championship, League One)
+        "I1", "I2",          # Italia (Serie A, Serie B)
+        "D1", "D2",          # Alemania (Bundesliga, 2. Bundesliga)
+        "F1", "F2",          # Francia (Ligue 1, Ligue 2)
+        
+        # 🇵🇹 Portugal
+        "P1",                # Primeira Liga
+        
+        # 🇳🇱 Países Bajos
+        "N1",                # Eredivisie
+        
+        # 🇧🇪 Bélgica
+        "B1",                # Pro League
+        
+        # 🇹🇷 Turquía
+        "T1",                # Süper Lig
+        
+        # 🇬🇷 Grecia
+        "G1",                # Super League
+        
+        # 🏴󠁧󠁢󠁳󠁣󠁴󠁿 Escocia
+        "SC0", "SC1", "SC2", "SC3",  # Premiership, Championship, League One, League Two
+        
+        # 🇦🇹 Austria
+        "A1",                # Bundesliga (austriaca)
+        
+        # 🇨🇭 Suiza
+        "C1",                # Super League
+        
+        # 🇩🇰 Dinamarca
+        "D1", "D2",          # Superliga, 1. Division (ojo: D1 es Alemania, así que cuidado con duplicados)
+                             # En football-data.co.uk, Dinamarca usa "DK1" para Superliga
+        "DK1",               # Dinamarca Superliga
+        
+        # 🇸🇪 Suecia
+        "SE1", "SE2",        # Allsvenskan, Superettan
+        
+        # 🇳🇴 Noruega
+        "NO1", "NO2",        # Eliteserien, 1. Division
+        
+        # 🇫🇮 Finlandia
+        "FI1",               # Veikkausliiga
+        
+        # 🇵🇱 Polonia
+        "PO1",               # Ekstraklasa
+        
+        # 🇨🇿 República Checa
+        "CZ1",               # Fortuna Liga
+        
+        # 🇷🇺 Rusia (si aún está disponible)
+        "RU1",               # Premier Liga
+        
+        # 🇺🇦 Ucrania
+        "UA1",               # Premier Liga
+        
+        # 🇭🇷 Croacia
+        "HR1",               # Prva HNL
+        
+        # 🇷🇸 Serbia
+        "SR1",               # Super Liga
+        
+        # 🇧🇬 Bulgaria
+        "BG1",               # Parva Liga
+        
+        # 🇷🇴 Rumanía
+        "RO1",               # Liga I
+        
+        # 🇭🇺 Hungría
+        "HU1",               # NB I
+        
+        # 🇸🇰 Eslovaquia
+        "SK1",               # Fortuna Liga
+        
+        # 🇸🇮 Eslovenia
+        "SI1",               # Prva Liga
+    ]
     
     total_archivos = len(temporadas) * len(ligas)
     contador = 0
@@ -259,44 +267,38 @@ def actualizar_csv(progreso_bar, status_text):
     errores = []
     exitosos = 0
     
-    # Contenedor para mensajes
     error_container = st.empty()
-    
-    # Mostrar qué temporadas se están descargando
-    status_text.text(f"📥 Descargando temporadas: {', '.join(temporadas)}")
     
     for t in temporadas:
         for cod in ligas:
             contador += 1
             progreso = contador / total_archivos
             progreso_bar.progress(progreso)
-            status_text.text(f"📥 Temporada {t} - Liga {cod} ({int(progreso*100)}%)")
+            status_text.text(f"📥 Descargando: {t}/{cod} ({int(progreso*100)}%)")
             
             url = f"https://www.football-data.co.uk/mmz4281/{t}/{cod}.csv"
             try:
                 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
                 response = requests.get(url, timeout=10, headers=headers)
                 
-                if response.status_code == 200:
-                    if len(response.text) > 100:
-                        df_temp = pd.read_csv(StringIO(response.text))
-                        # Añadir columna de temporada para referencia
-                        df_temp['Temporada'] = t
-                        
-                        cols = ['Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'FTR', 'Div', 'Temporada',
-                               'HC', 'AC', 'HF', 'AF', 'HY', 'AY', 'HR', 'AR',
-                               'B365H', 'B365D', 'B365A', 'PSC', 'PSH', 'PSD', 'PSA',
-                               'WHH', 'WHD', 'WHA', 'VCH', 'VCD', 'VCA',
-                               'MaxH', 'MaxD', 'MaxA', 'AvgH', 'AvgD', 'AvgA']
-                        existentes = [c for c in cols if c in df_temp.columns]
-                        if existentes:
-                            lista_dfs.append(df_temp[existentes])
-                            exitosos += 1
-                    else:
-                        errores.append(f"{t}/{cod} - archivo vacío")
-                else:
-                    errores.append(f"{t}/{cod} - HTTP {response.status_code}")
+                if response.status_code == 200 and len(response.text) > 100:
+                    df_temp = pd.read_csv(StringIO(response.text))
+                    # Añadir columna de temporada
+                    df_temp['Temporada'] = t
+                    df_temp['Liga'] = cod
                     
+                    # Columnas de interés
+                    cols = ['Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'FTR', 'Div', 'Temporada', 'Liga',
+                           'HC', 'AC', 'HF', 'AF', 'HY', 'AY', 'HR', 'AR',
+                           'B365H', 'B365D', 'B365A', 'PSC', 'PSH', 'PSD', 'PSA',
+                           'WHH', 'WHD', 'WHA', 'VCH', 'VCD', 'VCA',
+                           'MaxH', 'MaxD', 'MaxA', 'AvgH', 'AvgD', 'AvgA']
+                    existentes = [c for c in cols if c in df_temp.columns]
+                    if existentes:
+                        lista_dfs.append(df_temp[existentes])
+                        exitosos += 1
+                else:
+                    errores.append(f"{t}/{cod} - error")
             except Exception as e:
                 errores.append(f"{t}/{cod} - {str(e)[:50]}")
                 continue
@@ -309,7 +311,6 @@ def actualizar_csv(progreso_bar, status_text):
                 st.text(f"• {err}")
     
     if lista_dfs:
-        # Backup del archivo anterior
         if os.path.exists("datos_historicos.csv"):
             fecha = datetime.now().strftime("%Y%m%d_%H%M%S")
             os.makedirs("backups", exist_ok=True)
@@ -320,53 +321,27 @@ def actualizar_csv(progreso_bar, status_text):
         
         df_final = pd.concat(lista_dfs, ignore_index=True)
         df_final.to_csv("datos_historicos.csv", index=False)
-        
-        # Mostrar resumen de temporadas descargadas
-        st.success(f"""
-        ✅ Descarga completada:
-        - {exitosos} archivos descargados
-        - Temporadas: {', '.join(temporadas)}
-        - Total partidos: {len(df_final)}
-        """)
-        
         return True, len(df_final), errores
     
     return False, 0, errores
 
 def obtener_historial_h2h(df, local, visitante, limite=8):
-    """Obtiene el historial entre dos equipos"""
     mask = ((df['HomeTeam'] == local) & (df['AwayTeam'] == visitante)) | \
            ((df['HomeTeam'] == visitante) & (df['AwayTeam'] == local))
     return df[mask].sort_values('Date', ascending=False).head(limite)
 
 def crear_grafico_tendencias(df, equipo):
-    """Crea gráfico de tendencias de goles"""
     datos_goles = []
-    
     for _, row in df.iterrows():
         if row['HomeTeam'] == equipo:
-            datos_goles.append({
-                'fecha': row['Date'],
-                'goles': row['FTHG'],
-                'condicion': 'Local',
-                'rival': row['AwayTeam']
-            })
+            datos_goles.append({'fecha': row['Date'], 'goles': row['FTHG'], 'condicion': 'Local', 'rival': row['AwayTeam']})
         elif row['AwayTeam'] == equipo:
-            datos_goles.append({
-                'fecha': row['Date'],
-                'goles': row['FTAG'],
-                'condicion': 'Visitante',
-                'rival': row['HomeTeam']
-            })
-    
+            datos_goles.append({'fecha': row['Date'], 'goles': row['FTAG'], 'condicion': 'Visitante', 'rival': row['HomeTeam']})
     if datos_goles:
-        df_goles = pd.DataFrame(datos_goles)
-        df_goles = df_goles.sort_values('fecha').tail(15)
-        
+        df_goles = pd.DataFrame(datos_goles).sort_values('fecha').tail(15)
         fig = px.line(df_goles, x='fecha', y='goles', color='condicion',
                      title=f"📈 Tendencia de {equipo} (últimos 15 partidos)",
-                     markers=True, hover_data={'rival': True, 'goles': True, 'fecha': False})
-        
+                     markers=True, hover_data={'rival': True})
         fig.update_layout(hovermode='x unified', showlegend=True, height=400)
         return fig
     return None
@@ -376,24 +351,11 @@ def crear_grafico_tendencias(df, equipo):
 # ============================================================================
 
 def calcular_probabilidades_todos_mercados(pronostico):
-    """Calcula probabilidades para diferentes mercados de apuestas"""
     mercados = {}
-    
-    # Mercado 1X2
-    mercados['1x2'] = {
-        'local': pronostico.p_win,
-        'empate': pronostico.p_draw,
-        'visitante': pronostico.p_lose
-    }
-    
-    # Mercado: Doble oportunidad
-    mercados['doble_oportunidad'] = {
-        '1X': pronostico.p_win + pronostico.p_draw,
-        '12': pronostico.p_win + pronostico.p_lose,
-        'X2': pronostico.p_draw + pronostico.p_lose
-    }
-    
-    # Mercado: Over/Under
+    mercados['1x2'] = {'local': pronostico.p_win, 'empate': pronostico.p_draw, 'visitante': pronostico.p_lose}
+    mercados['doble_oportunidad'] = {'1X': pronostico.p_win + pronostico.p_draw,
+                                      '12': pronostico.p_win + pronostico.p_lose,
+                                      'X2': pronostico.p_draw + pronostico.p_lose}
     mercados['over_under'] = {
         'Over 0.5': (1 - poisson.pmf(0, pronostico.media_total)) * 100,
         'Under 0.5': poisson.pmf(0, pronostico.media_total) * 100,
@@ -404,913 +366,519 @@ def calcular_probabilidades_todos_mercados(pronostico):
         'Over 3.5': (1 - poisson.cdf(3, pronostico.media_total)) * 100,
         'Under 3.5': poisson.cdf(3, pronostico.media_total) * 100
     }
-    
-    # Mercado: Ambos marcan
-    mercados['ambos_marcan'] = {
-        'Si': pronostico.prob_ambos,
-        'No': 100 - pronostico.prob_ambos
-    }
-    
-    # Mercado: Goles exactos
-    mercados['goles_exactos'] = {}
-    for goles in range(7):
-        mercados['goles_exactos'][f'Exactly {goles}'] = poisson.pmf(goles, pronostico.media_total) * 100
-    
-    # Mercado: Handicap asiático
+    mercados['ambos_marcan'] = {'Si': pronostico.prob_ambos, 'No': 100 - pronostico.prob_ambos}
+    mercados['goles_exactos'] = {f'Exactly {g}': poisson.pmf(g, pronostico.media_total) * 100 for g in range(7)}
     mercados['handicap'] = {
         'Local -0.5': pronostico.p_win,
         'Visitante +0.5': pronostico.p_draw + pronostico.p_lose,
         'Visitante -0.5': pronostico.p_lose,
         'Local +0.5': pronostico.p_win + pronostico.p_draw
     }
-    
     return mercados
 
 def encontrar_mejores_cuotas(df_partido):
-    """Encuentra las mejores cuotas disponibles de todas las casas"""
-    cuotas = {}
-    
     if df_partido.empty:
         return None
-    
-    ultima_fila = df_partido.iloc[0] if not df_partido.empty else None
-    
+    ultima_fila = df_partido.iloc[0]
     mapping = {
         'local': ['B365H', 'PSH', 'WHH', 'VCH', 'MaxH'],
         'empate': ['B365D', 'PSD', 'WHD', 'VCD', 'MaxD'],
         'visitante': ['B365A', 'PSA', 'WHA', 'VCA', 'MaxA']
     }
-    
+    cuotas = {}
     for mercado, columnas in mapping.items():
         mejor_cuota = 0
         mejor_casa = None
-        
         for col in columnas:
             if col in ultima_fila and pd.notna(ultima_fila[col]):
                 cuota_val = float(ultima_fila[col])
                 if cuota_val > mejor_cuota:
                     mejor_cuota = cuota_val
                     mejor_casa = col
-        
         if mejor_cuota > 0:
-            cuotas[mercado] = {
-                'cuota': mejor_cuota,
-                'casa': mejor_casa,
-                'prob_implícita': 1 / mejor_cuota * 100,
-                'tipo': 'real'
-            }
-    
+            cuotas[mercado] = {'cuota': mejor_cuota, 'casa': mejor_casa, 'prob_implícita': 1/mejor_cuota*100, 'tipo': 'real'}
     return cuotas if cuotas else None
 
 def calcular_valor_esperado(prob_real, cuota):
-    """Calcula el Valor Esperado de una apuesta"""
     if cuota <= 0 or prob_real <= 0:
         return -100
-    valor_esperado = (prob_real / 100 * cuota) - 1
-    return valor_esperado * 100
+    return (prob_real / 100 * cuota - 1) * 100
 
 def recomendar_apuesta_segura(pronostico, cuotas_disponibles):
-    """Encuentra la apuesta más segura basada en probabilidad real"""
-    todas_apuestas = []
-    
-    # Apuestas 1X2
-    todas_apuestas.append({
-        'nombre': f'Local: {pronostico.local}',
-        'tipo': '1X2', 'mercado': 'Local',
-        'probabilidad': pronostico.p_win,
-        'cuota': cuotas_disponibles.get('local', {}).get('cuota', 1.0) if cuotas_disponibles else 1.0,
-        'seguridad': 'ALTA' if pronostico.p_win > 60 else 'MEDIA' if pronostico.p_win > 45 else 'BAJA'
-    })
-    
-    todas_apuestas.append({
-        'nombre': 'Empate',
-        'tipo': '1X2', 'mercado': 'Empate',
-        'probabilidad': pronostico.p_draw,
-        'cuota': cuotas_disponibles.get('empate', {}).get('cuota', 1.0) if cuotas_disponibles else 1.0,
-        'seguridad': 'ALTA' if pronostico.p_draw > 60 else 'MEDIA' if pronostico.p_draw > 45 else 'BAJA'
-    })
-    
-    todas_apuestas.append({
-        'nombre': f'Visitante: {pronostico.visitante}',
-        'tipo': '1X2', 'mercado': 'Visitante',
-        'probabilidad': pronostico.p_lose,
-        'cuota': cuotas_disponibles.get('visitante', {}).get('cuota', 1.0) if cuotas_disponibles else 1.0,
-        'seguridad': 'ALTA' if pronostico.p_lose > 60 else 'MEDIA' if pronostico.p_lose > 45 else 'BAJA'
-    })
-    
+    todas = []
+    # 1X2
+    todas.append({'nombre': f'Local: {pronostico.local}', 'tipo': '1X2',
+                  'probabilidad': pronostico.p_win,
+                  'cuota': cuotas_disponibles.get('local', {}).get('cuota', 1.0) if cuotas_disponibles else 1.0,
+                  'seguridad': 'ALTA' if pronostico.p_win > 60 else 'MEDIA' if pronostico.p_win > 45 else 'BAJA'})
+    todas.append({'nombre': 'Empate', 'tipo': '1X2',
+                  'probabilidad': pronostico.p_draw,
+                  'cuota': cuotas_disponibles.get('empate', {}).get('cuota', 1.0) if cuotas_disponibles else 1.0,
+                  'seguridad': 'ALTA' if pronostico.p_draw > 60 else 'MEDIA' if pronostico.p_draw > 45 else 'BAJA'})
+    todas.append({'nombre': f'Visitante: {pronostico.visitante}', 'tipo': '1X2',
+                  'probabilidad': pronostico.p_lose,
+                  'cuota': cuotas_disponibles.get('visitante', {}).get('cuota', 1.0) if cuotas_disponibles else 1.0,
+                  'seguridad': 'ALTA' if pronostico.p_lose > 60 else 'MEDIA' if pronostico.p_lose > 45 else 'BAJA'})
     # Over/Under
-    todas_apuestas.append({
-        'nombre': 'Over 2.5', 'tipo': 'Totales', 'mercado': 'Over 2.5',
-        'probabilidad': pronostico.prob_over_25, 'cuota': 2.0,
-        'seguridad': 'ALTA' if pronostico.prob_over_25 > 65 else 'MEDIA' if pronostico.prob_over_25 > 50 else 'BAJA'
-    })
-    
-    todas_apuestas.append({
-        'nombre': 'Under 2.5', 'tipo': 'Totales', 'mercado': 'Under 2.5',
-        'probabilidad': pronostico.prob_under_25, 'cuota': 1.9,
-        'seguridad': 'ALTA' if pronostico.prob_under_25 > 65 else 'MEDIA' if pronostico.prob_under_25 > 50 else 'BAJA'
-    })
-    
+    todas.append({'nombre': 'Over 2.5', 'tipo': 'Totales', 'probabilidad': pronostico.prob_over_25, 'cuota': 2.0,
+                  'seguridad': 'ALTA' if pronostico.prob_over_25 > 65 else 'MEDIA' if pronostico.prob_over_25 > 50 else 'BAJA'})
+    todas.append({'nombre': 'Under 2.5', 'tipo': 'Totales', 'probabilidad': pronostico.prob_under_25, 'cuota': 1.9,
+                  'seguridad': 'ALTA' if pronostico.prob_under_25 > 65 else 'MEDIA' if pronostico.prob_under_25 > 50 else 'BAJA'})
     # Ambos marcan
-    todas_apuestas.append({
-        'nombre': 'Ambos marcan - SI', 'tipo': 'Ambos Marcan', 'mercado': 'Si',
-        'probabilidad': pronostico.prob_ambos, 'cuota': 1.95,
-        'seguridad': 'ALTA' if pronostico.prob_ambos > 65 else 'MEDIA' if pronostico.prob_ambos > 50 else 'BAJA'
-    })
-    
-    todas_apuestas.append({
-        'nombre': 'Ambos marcan - NO', 'tipo': 'Ambos Marcan', 'mercado': 'No',
-        'probabilidad': 100 - pronostico.prob_ambos, 'cuota': 1.85,
-        'seguridad': 'ALTA' if (100 - pronostico.prob_ambos) > 65 else 'MEDIA' if (100 - pronostico.prob_ambos) > 50 else 'BAJA'
-    })
-    
-    todas_apuestas.sort(key=lambda x: x['probabilidad'], reverse=True)
-    return todas_apuestas
+    todas.append({'nombre': 'Ambos marcan - SI', 'tipo': 'Ambos Marcan', 'probabilidad': pronostico.prob_ambos, 'cuota': 1.95,
+                  'seguridad': 'ALTA' if pronostico.prob_ambos > 65 else 'MEDIA' if pronostico.prob_ambos > 50 else 'BAJA'})
+    todas.append({'nombre': 'Ambos marcan - NO', 'tipo': 'Ambos Marcan', 'probabilidad': 100 - pronostico.prob_ambos, 'cuota': 1.85,
+                  'seguridad': 'ALTA' if (100 - pronostico.prob_ambos) > 65 else 'MEDIA' if (100 - pronostico.prob_ambos) > 50 else 'BAJA'})
+    todas.sort(key=lambda x: x['probabilidad'], reverse=True)
+    return todas
 
 def generar_combinadas_inteligentes(pronostico):
-    """Genera combinadas óptimas basadas en altas probabilidades"""
-    combinadas = []
-    
+    combis = []
     if pronostico.p_win > 55 and pronostico.prob_over_25 > 55:
-        prob_conjunta = (pronostico.p_win / 100) * (pronostico.prob_over_25 / 100) * 100
-        combinadas.append({
-            'nombre': 'Local gana + Over 2.5',
-            'apuestas': [f'Gana {pronostico.local}', 'Over 2.5'],
-            'probabilidad': prob_conjunta, 'cuota_estimada': 3.5,
-            'seguridad': 'ALTA' if prob_conjunta > 35 else 'MEDIA'
-        })
-    
+        prob = (pronostico.p_win/100)*(pronostico.prob_over_25/100)*100
+        combis.append({'nombre': 'Local gana + Over 2.5', 'apuestas': [f'Gana {pronostico.local}', 'Over 2.5'],
+                       'probabilidad': prob, 'cuota_estimada': 3.5, 'seguridad': 'ALTA' if prob > 35 else 'MEDIA'})
     if pronostico.p_draw > 30 and pronostico.prob_under_25 > 60:
-        prob_1X = (pronostico.p_win + pronostico.p_draw) / 100
-        prob_conjunta = prob_1X * (pronostico.prob_under_25 / 100) * 100
-        combinadas.append({
-            'nombre': 'Local o Empate + Under 2.5',
-            'apuestas': ['1X (Local o Empate)', 'Under 2.5'],
-            'probabilidad': prob_conjunta, 'cuota_estimada': 2.8,
-            'seguridad': 'ALTA' if prob_conjunta > 40 else 'MEDIA'
-        })
-    
+        prob_1X = (pronostico.p_win + pronostico.p_draw)/100
+        prob = prob_1X * (pronostico.prob_under_25/100) * 100
+        combis.append({'nombre': 'Local o Empate + Under 2.5', 'apuestas': ['1X', 'Under 2.5'],
+                       'probabilidad': prob, 'cuota_estimada': 2.8, 'seguridad': 'ALTA' if prob > 40 else 'MEDIA'})
     if pronostico.prob_ambos > 60 and pronostico.prob_over_25 > 60:
-        prob_conjunta = (pronostico.prob_ambos / 100) * (pronostico.prob_over_25 / 100) * 100
-        combinadas.append({
-            'nombre': 'Ambos marcan + Over 2.5',
-            'apuestas': ['Ambos marcan - SI', 'Over 2.5'],
-            'probabilidad': prob_conjunta, 'cuota_estimada': 3.2,
-            'seguridad': 'ALTA' if prob_conjunta > 40 else 'MEDIA'
-        })
-    
+        prob = (pronostico.prob_ambos/100)*(pronostico.prob_over_25/100)*100
+        combis.append({'nombre': 'Ambos marcan + Over 2.5', 'apuestas': ['Ambos marcan - SI', 'Over 2.5'],
+                       'probabilidad': prob, 'cuota_estimada': 3.2, 'seguridad': 'ALTA' if prob > 40 else 'MEDIA'})
     if pronostico.p_draw > 35 and pronostico.prob_under_25 > 65:
-        prob_conjunta = (pronostico.p_draw / 100) * (pronostico.prob_under_25 / 100) * 100
-        combinadas.append({
-            'nombre': 'Empate + Under 2.5',
-            'apuestas': ['Empate', 'Under 2.5'],
-            'probabilidad': prob_conjunta, 'cuota_estimada': 4.0,
-            'seguridad': 'MEDIA'
-        })
-    
-    combinadas.sort(key=lambda x: x['probabilidad'], reverse=True)
-    return combinadas
+        prob = (pronostico.p_draw/100)*(pronostico.prob_under_25/100)*100
+        combis.append({'nombre': 'Empate + Under 2.5', 'apuestas': ['Empate', 'Under 2.5'],
+                       'probabilidad': prob, 'cuota_estimada': 4.0, 'seguridad': 'MEDIA'})
+    combis.sort(key=lambda x: x['probabilidad'], reverse=True)
+    return combis
 
 def calcular_rating_confianza(pronostico):
-    """Calcula un rating de confianza global (0-100)"""
     rating = 0
-    
     muestras = len(pronostico.df_local) + len(pronostico.df_visitante)
-    if muestras > 35: rating += 30
-    elif muestras > 20: rating += 20
-    else: rating += 10
-    
+    rating += 30 if muestras > 35 else (20 if muestras > 20 else 10)
     max_prob = max(pronostico.p_win, pronostico.p_draw, pronostico.p_lose)
-    if max_prob > 60: rating += 30
-    elif max_prob > 50: rating += 20
-    else: rating += 10
-    
-    over_under_diff = abs(pronostico.prob_over_25 - pronostico.prob_under_25)
-    if over_under_diff > 30: rating += 20
-    elif over_under_diff > 15: rating += 15
-    else: rating += 5
-    
-    ambos_diff = abs(pronostico.prob_ambos - 50)
-    if ambos_diff > 25: rating += 20
-    elif ambos_diff > 10: rating += 15
-    else: rating += 5
-    
+    rating += 30 if max_prob > 60 else (20 if max_prob > 50 else 10)
+    diff_ou = abs(pronostico.prob_over_25 - pronostico.prob_under_25)
+    rating += 20 if diff_ou > 30 else (15 if diff_ou > 15 else 5)
+    diff_ambos = abs(pronostico.prob_ambos - 50)
+    rating += 20 if diff_ambos > 25 else (15 if diff_ambos > 10 else 5)
     return min(rating, 100)
 
 def analizar_value_bets(pronostico, cuotas_disponibles):
-    """Analiza si hay value bets según las mejores cuotas disponibles"""
-    resultados = {}
-    
     if not cuotas_disponibles:
         return None
-    
+    res = {}
     for mercado in ['local', 'empate', 'visitante']:
         if mercado in cuotas_disponibles:
-            prob_real = getattr(pronostico, f'p_win' if mercado == 'local' else f'p_draw' if mercado == 'empate' else f'p_lose')
+            prob_real = getattr(pronostico, 'p_win' if mercado == 'local' else 'p_draw' if mercado == 'empate' else 'p_lose')
             value = prob_real - cuotas_disponibles[mercado]['prob_implícita']
-            
-            resultados[mercado] = {
-                'value': value,
-                'es_value': value > 5,
-                'cuota': cuotas_disponibles[mercado]['cuota'],
-                'casa': cuotas_disponibles[mercado]['casa'],
-                'prob_impl': cuotas_disponibles[mercado]['prob_implícita'],
-                'prob_real': prob_real
-            }
-    
-    valores = [r['value'] for r in resultados.values() if r['value'] > 3]
+            res[mercado] = {'value': value, 'es_value': value > 5,
+                            'cuota': cuotas_disponibles[mercado]['cuota'],
+                            'casa': cuotas_disponibles[mercado]['casa'],
+                            'prob_impl': cuotas_disponibles[mercado]['prob_implícita'],
+                            'prob_real': prob_real}
+    valores = [r['value'] for r in res.values() if r['value'] > 3]
     if valores:
-        max_value = max(valores)
-        for mercado, datos in resultados.items():
-            if datos['value'] == max_value:
-                resultados['mejor_value'] = {
-                    'mercado': mercado,
-                    'value': max_value,
-                    'cuota': datos['cuota']
-                }
+        max_val = max(valores)
+        for k, v in res.items():
+            if v['value'] == max_val:
+                res['mejor_value'] = {'mercado': k, 'value': max_val, 'cuota': v['cuota']}
                 break
     else:
-        resultados['mejor_value'] = None
-    
-    return resultados
+        res['mejor_value'] = None
+    return res
 
 def analizar_ligas(df_total):
-    """Analiza qué ligas tienen mejores oportunidades"""
     if 'Div' not in df_total.columns:
         return pd.DataFrame()
-    
     ligas_dict = {
-        'SP1': 'La Liga', 'SP2': 'La Liga 2', 'E0': 'Premier',
-        'E1': 'Championship', 'I1': 'Serie A', 'D1': 'Bundesliga',
-        'F1': 'Ligue 1', 'P1': 'Liga Portugal'
+        'SP1': 'La Liga', 'SP2': 'La Liga 2', 'E0': 'Premier', 'E1': 'Championship',
+        'I1': 'Serie A', 'D1': 'Bundesliga', 'F1': 'Ligue 1', 'P1': 'Liga Portugal',
+        'N1': 'Eredivisie', 'B1': 'Pro League Bélgica', 'T1': 'Süper Lig',
+        'G1': 'Super League Grecia', 'SC0': 'Premiership Escocia', 'A1': 'Bundesliga Austria',
+        'C1': 'Super League Suiza', 'DK1': 'Superliga Dinamarca', 'SE1': 'Allsvenskan',
+        'NO1': 'Eliteserien', 'FI1': 'Veikkausliiga', 'PO1': 'Ekstraklasa',
+        'CZ1': 'Fortuna Liga', 'RU1': 'Premier Liga Rusa', 'UA1': 'Premier Liga Ucrania',
+        'HR1': 'Prva HNL', 'SR1': 'Super Liga Serbia', 'BG1': 'Parva Liga',
+        'RO1': 'Liga I', 'HU1': 'NB I', 'SK1': 'Fortuna Liga Eslovaquia', 'SI1': 'Prva Liga Eslovenia'
     }
-    
-    stats_ligas = []
-    for codigo, nombre in ligas_dict.items():
-        df_liga = df_total[df_total['Div'] == codigo]
-        if not df_liga.empty and len(df_liga) > 10:
+    stats = []
+    for cod, nombre in ligas_dict.items():
+        df_liga = df_total[df_total['Div'] == cod]
+        if len(df_liga) > 10:
             media_goles = (df_liga['FTHG'].mean() + df_liga['FTAG'].mean()) / 2
-            stats_ligas.append({
+            stats.append({
                 'Liga': nombre,
                 'Partidos': len(df_liga),
                 'Media Goles': round(media_goles, 2),
                 'Over 2.5 %': round((df_liga['FTHG'] + df_liga['FTAG'] > 2.5).mean() * 100, 1)
             })
-    
-    return pd.DataFrame(stats_ligas).sort_values('Over 2.5 %', ascending=False)
+    return pd.DataFrame(stats).sort_values('Over 2.5 %', ascending=False)
 
 def check_alertas(pronostico, cuotas_disponibles, value_analysis):
-    """Verifica si hay condiciones para alertar"""
     alertas = []
-    
-    if cuotas_disponibles and value_analysis and value_analysis['mejor_value']:
-        if value_analysis['mejor_value']['value'] > 10:
-            alertas.append({
-                'tipo': '🔴 VALUE BET FUERTE',
-                'mensaje': f"{value_analysis['mejor_value']['mercado']} con +{value_analysis['mejor_value']['value']:.1f}%"
-            })
-    
+    if value_analysis and value_analysis.get('mejor_value') and value_analysis['mejor_value']['value'] > 10:
+        alertas.append({'tipo': '🔴 VALUE BET FUERTE',
+                        'mensaje': f"{value_analysis['mejor_value']['mercado']} con +{value_analysis['mejor_value']['value']:.1f}%"})
     max_prob = max(pronostico.p_win, pronostico.p_draw, pronostico.p_lose)
     if max_prob > 70:
-        alertas.append({
-            'tipo': '🎯 FAVORITO CLARO',
-            'mensaje': f"{max_prob:.1f}% de probabilidad"
-        })
-    
+        alertas.append({'tipo': '🎯 FAVORITO CLARO', 'mensaje': f"{max_prob:.1f}% de probabilidad"})
     if pronostico.prob_over_25 > 75:
-        alertas.append({
-            'tipo': '⚽ MUCHOS GOLES',
-            'mensaje': f"Over 2.5 al {pronostico.prob_over_25:.1f}%"
-        })
-    
+        alertas.append({'tipo': '⚽ MUCHOS GOLES', 'mensaje': f"Over 2.5 al {pronostico.prob_over_25:.1f}%"})
     if pronostico.prob_ambos > 75:
-        alertas.append({
-            'tipo': '🥅 AMBOS MARCAN SEGURO',
-            'mensaje': f"{pronostico.prob_ambos:.1f}% de probabilidad"
-        })
-    
+        alertas.append({'tipo': '🥅 AMBOS MARCAN SEGURO', 'mensaje': f"{pronostico.prob_ambos:.1f}% de probabilidad"})
     return alertas
 
-# ============================================================================
-# FUNCIÓN CORREGIDA DE ANÁLISIS DE TENDENCIAS
-# ============================================================================
-
 def analizar_tendencias_equipo(df, equipo):
-    """Análisis detallado de forma reciente con colores (CORREGIDO)"""
-    partidos_recientes = df[(df['HomeTeam'] == equipo) | (df['AwayTeam'] == equipo)].tail(10)
-    
-    if partidos_recientes.empty:
+    partidos = df[(df['HomeTeam'] == equipo) | (df['AwayTeam'] == equipo)].tail(10)
+    if partidos.empty:
         return None
-    
-    resultados = []
-    for _, p in partidos_recientes.iterrows():
+    res = []
+    for _, p in partidos.iterrows():
         if p['HomeTeam'] == equipo:
-            # El equipo juega como LOCAL
-            if p['FTHG'] > p['FTAG']:
-                resultados.append('G')  # Gana como local
-            elif p['FTHG'] < p['FTAG']:
-                resultados.append('P')  # Pierde como local
-            else:
-                resultados.append('E')  # Empata como local
+            if p['FTHG'] > p['FTAG']: res.append('G')
+            elif p['FTHG'] < p['FTAG']: res.append('P')
+            else: res.append('E')
         else:
-            # El equipo juega como VISITANTE
-            if p['FTAG'] > p['FTHG']:
-                resultados.append('G')  # Gana como visitante
-            elif p['FTAG'] < p['FTHG']:
-                resultados.append('P')  # Pierde como visitante
-            else:
-                resultados.append('E')  # Empata como visitante
-    
-    return {
-        'forma': ''.join(resultados),
-        'rachas': {
-            'victorias': resultados.count('G'),
-            'empates': resultados.count('E'),
-            'derrotas': resultados.count('P')
-        }
-    }
+            if p['FTAG'] > p['FTHG']: res.append('G')
+            elif p['FTAG'] < p['FTHG']: res.append('P')
+            else: res.append('E')
+    return {'forma': ''.join(res),
+            'rachas': {'victorias': res.count('G'), 'empates': res.count('E'), 'derrotas': res.count('P')}}
 
 # ============================================================================
 # INTERFAZ PRINCIPAL
 # ============================================================================
 
 def main():
-    """Función principal de la aplicación"""
-    
-    # Inicializar session state para favoritos
     if 'favoritos' not in st.session_state:
         st.session_state.favoritos = []
     
-    # Título
     st.title("⚽ ASISTENTE DE APUESTAS IA - FÚTBOL PROFESIONAL")
     
     with st.expander("ℹ️ ¿Cómo funciona?", expanded=False):
         st.markdown("""
         ### 🎯 **Sistema Experto de Apuestas**
-        
-        #### 📊 Modelo Estadístico Poisson
-        - Calcula probabilidades basadas en media de goles real
-        - Análisis de últimos 20 partidos por equipo
-        - Eliminación automática de outliers
-        
-        #### 🤖 **IA y Machine Learning**
-        - **Value Bet Detection**: Identifica cuotas infravaloradas
-        - **Rating de Confianza**: Puntuación 0-100 sobre la fiabilidad
-        - **Alertas automáticas**: Notificaciones de oportunidades
-        
-        #### 🔥 **Value Bet**
-        - **+5% de ventaja**: Apuesta con valor positivo
-        - Basado en comparación con mejores cuotas del mercado
+        - Modelo Poisson para probabilidades reales.
+        - Comparación con cuotas de mercado para detectar **Value Bets**.
+        - Alertas automáticas y rating de confianza.
         """)
     
-    # Cargar datos
     df_total = cargar_datos()
-    
     if df_total.empty:
-        st.warning("⚠️ No hay datos disponibles. Pulsa 'Actualizar Base de Datos' en el menú lateral.")
+        st.warning("⚠️ No hay datos. Pulsa 'Actualizar Base de Datos' en la barra lateral.")
         with st.sidebar:
             if st.button("🔄 Actualizar Base de Datos", use_container_width=True):
-                with st.spinner("Actualizando datos..."):
-                    progreso = st.progress(0)
+                with st.spinner("Actualizando..."):
+                    pbar = st.progress(0)
                     status = st.empty()
-                    exito, num_registros, errores = actualizar_csv(progreso, status)
-                    if exito:
-                        st.success(f"✅ ¡Actualizado! {num_registros} registros")
+                    ok, num, err = actualizar_csv(pbar, status)
+                    if ok:
+                        st.success(f"✅ {num} registros")
                         st.cache_data.clear()
                         time.sleep(1)
                         st.rerun()
         return
     
-    # Obtener equipos
     equipos = sorted(set(df_total['HomeTeam'].unique()) | set(df_total['AwayTeam'].unique()))
-    
-    # ========================================================================
-    # BARRA LATERAL MEJORADA
-    # ========================================================================
     
     with st.sidebar:
         st.header("⚙️ CONFIGURACIÓN")
-        
-        # Indicador de cuotas disponibles
-        equipos_con_cuotas = []
+        # Indicador de cuotas
+        eq_cuotas = []
         for eq in equipos[:30]:
-            h2h_temp = obtener_historial_h2h(df_total, eq, eq)
-            if not h2h_temp.empty:
-                tiene_cuotas = any(col in h2h_temp.columns and not h2h_temp[col].isna().all() 
-                                  for col in ['B365H', 'PSH', 'WHH'])
-                if tiene_cuotas:
-                    equipos_con_cuotas.append(eq)
+            hh = obtener_historial_h2h(df_total, eq, eq)
+            if not hh.empty and any(c in hh.columns and not hh[c].isna().all() for c in ['B365H','PSH','WHH']):
+                eq_cuotas.append(eq)
+        st.info(f"📊 {len(eq_cuotas)} equipos con cuotas históricas")
         
-        st.info(f"📊 {len(equipos_con_cuotas)} equipos con cuotas históricas")
-        
-        # Parámetros de análisis
         num_partidos = st.slider("📊 Partidos a analizar", 5, 50, 20, 5)
         mostrar_graficos = st.checkbox("📈 Mostrar gráficos", value=True)
-        
         st.divider()
         
-        # Sistema de favoritos
         st.header("⭐ MIS FAVORITOS")
-        nuevo_fav = st.selectbox("Añadir equipo favorito", equipos, key='nuevo_fav')
-        if st.button("➕ Añadir a favoritos", use_container_width=True):
+        nuevo_fav = st.selectbox("Añadir favorito", equipos, key='nuevo_fav')
+        if st.button("➕ Añadir", use_container_width=True):
             if nuevo_fav not in st.session_state.favoritos:
                 st.session_state.favoritos.append(nuevo_fav)
                 st.success(f"✅ {nuevo_fav} añadido")
-        
-        if st.session_state.favoritos:
-            st.write("**Tus equipos:**")
-            for fav in st.session_state.favoritos:
-                col_f1, col_f2 = st.columns([3, 1])
-                with col_f1:
-                    st.write(f"• {fav}")
-                with col_f2:
-                    if st.button("❌", key=f"del_{fav}"):
-                        st.session_state.favoritos.remove(fav)
-                        st.rerun()
-        
+        for fav in st.session_state.favoritos:
+            colf1, colf2 = st.columns([3,1])
+            colf1.write(f"• {fav}")
+            if colf2.button("❌", key=f"del_{fav}"):
+                st.session_state.favoritos.remove(fav)
+                st.rerun()
         st.divider()
         
-        # Estadísticas por liga
         st.header("📊 ESTADÍSTICAS POR LIGA")
         df_ligas = analizar_ligas(df_total)
         if not df_ligas.empty:
             st.dataframe(df_ligas, use_container_width=True, height=200)
-        
         st.divider()
         
-        # Botón de actualización
         if st.button("🔄 Actualizar Base de Datos", use_container_width=True):
-            with st.spinner("Actualizando datos..."):
-                progreso = st.progress(0)
+            with st.spinner("Actualizando..."):
+                pbar = st.progress(0)
                 status = st.empty()
-                exito, num_registros, errores = actualizar_csv(progreso, status)
-                if exito:
-                    st.success(f"✅ ¡Actualizado! {num_registros} registros")
+                ok, num, err = actualizar_csv(pbar, status)
+                if ok:
+                    st.success(f"✅ {num} registros")
                     st.cache_data.clear()
                     time.sleep(1)
                     st.rerun()
-        
         st.caption(f"📱 Modo: {'Móvil' if ES_MOVIL else 'Escritorio'}")
         st.caption(f"🕐 {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     
-    # ========================================================================
-    # SELECCIÓN DE EQUIPOS
-    # ========================================================================
-    
-    # Si hay favoritos, dar opción de filtrar
-    if st.session_state.favoritos:
-        filtrar_fav = st.checkbox("⭐ Solo mostrar favoritos")
-        if filtrar_fav:
-            equipos_display = st.session_state.favoritos
-        else:
-            equipos_display = equipos
+    # Selección de equipos
+    if st.session_state.favoritos and st.checkbox("⭐ Solo favoritos"):
+        disp = st.session_state.favoritos
     else:
-        equipos_display = equipos
+        disp = equipos
     
     col1, col2 = st.columns(2)
     with col1:
-        local = st.selectbox("🏠 Equipo Local", equipos_display, index=0)
+        local = st.selectbox("🏠 Local", disp, index=0)
     with col2:
-        idx_visit = min(1, len(equipos_display)-1) if len(equipos_display) > 1 else 0
-        visitante = st.selectbox("🚀 Equipo Visitante", equipos_display, index=idx_visit)
+        idx = min(1, len(disp)-1) if len(disp)>1 else 0
+        visitante = st.selectbox("🚀 Visitante", disp, index=idx)
     
-    # ========================================================================
-    # ANÁLISIS DEL PARTIDO
-    # ========================================================================
-    
-    d_local = df_total[(df_total['HomeTeam'] == local) | (df_total['AwayTeam'] == local)]
-    d_visitante = df_total[(df_total['HomeTeam'] == visitante) | (df_total['AwayTeam'] == visitante)]
-    
-    if d_local.empty or d_visitante.empty:
-        st.error("No hay suficientes datos para estos equipos")
+    # Filtrar datos
+    d_local = df_total[(df_total['HomeTeam']==local)|(df_total['AwayTeam']==local)]
+    d_visit = df_total[(df_total['HomeTeam']==visitante)|(df_total['AwayTeam']==visitante)]
+    if d_local.empty or d_visit.empty:
+        st.error("Datos insuficientes")
         return
     
-    # Crear pronóstico
-    pronostico = PronosticadorFutbol(d_local, d_visitante, local, visitante, num_partidos)
+    pronostico = PronosticadorFutbol(d_local, d_visit, local, visitante, num_partidos)
+    tend_local = analizar_tendencias_equipo(d_local, local)
+    tend_visit = analizar_tendencias_equipo(d_visit, visitante)
     
-    # Análisis de tendencias
-    tendencia_local = analizar_tendencias_equipo(d_local, local)
-    tendencia_visit = analizar_tendencias_equipo(d_visitante, visitante)
-    
-    # Obtener cuotas y análisis
-    h2h_cuotas = obtener_historial_h2h(df_total, local, visitante, limite=1)
-    cuotas_disponibles = encontrar_mejores_cuotas(h2h_cuotas) if not h2h_cuotas.empty else None
+    h2h_cuotas = obtener_historial_h2h(df_total, local, visitante, 1)
+    cuotas_disp = encontrar_mejores_cuotas(h2h_cuotas) if not h2h_cuotas.empty else None
     
     mercados = calcular_probabilidades_todos_mercados(pronostico)
-    apuestas_seguras = recomendar_apuesta_segura(pronostico, cuotas_disponibles)
+    apuestas_seguras = recomendar_apuesta_segura(pronostico, cuotas_disp)
     combinadas = generar_combinadas_inteligentes(pronostico)
-    rating_confianza = calcular_rating_confianza(pronostico)
-    value_analysis = analizar_value_bets(pronostico, cuotas_disponibles)
-    alertas = check_alertas(pronostico, cuotas_disponibles, value_analysis)
-    
-    # ========================================================================
-    # ALERTAS
-    # ========================================================================
+    rating = calcular_rating_confianza(pronostico)
+    value_analysis = analizar_value_bets(pronostico, cuotas_disp)
+    alertas = check_alertas(pronostico, cuotas_disp, value_analysis)
     
     if alertas:
         st.divider()
-        st.subheader("🚨 ALERTAS DEL PARTIDO")
-        for alerta in alertas:
-            if "VALUE" in alerta['tipo']:
-                st.markdown(f"""
-                <div class="alerta-verde alerta-card">
-                    <span style="font-size:20px;">{alerta['tipo']}</span><br>
-                    {alerta['mensaje']}
-                </div>
-                """, unsafe_allow_html=True)
-            elif "FAVORITO" in alerta['tipo']:
-                st.markdown(f"""
-                <div class="alerta-amarilla alerta-card">
-                    <span style="font-size:20px;">{alerta['tipo']}</span><br>
-                    {alerta['mensaje']}
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class="alerta-verde alerta-card">
-                    <span style="font-size:20px;">{alerta['tipo']}</span><br>
-                    {alerta['mensaje']}
-                </div>
-                """, unsafe_allow_html=True)
-    
-    # ========================================================================
-    # MÉTRICAS PRINCIPALES
-    # ========================================================================
+        st.subheader("🚨 ALERTAS")
+        for a in alertas:
+            cls = "alerta-verde" if "VALUE" in a['tipo'] or "MUCHOS" in a['tipo'] else "alerta-amarilla"
+            st.markdown(f"<div class='{cls} alerta-card'><span style='font-size:20px;'>{a['tipo']}</span><br>{a['mensaje']}</div>", unsafe_allow_html=True)
     
     st.divider()
-    cols_metricas = st.columns(4)
-    
-    with cols_metricas[0]:
+    cols = st.columns(4)
+    with cols[0]:
         st.subheader("🎯 Marcador")
-        g_local, g_visit, prob_max = pronostico.get_marcador_sugerido()
-        st.markdown(f"<h1 style='color:#FF4B4B; text-align:center;'>{g_local} - {g_visit}</h1>", 
-                   unsafe_allow_html=True)
-        st.caption(f"Prob: {prob_max:.1f}%")
-    
-    with cols_metricas[1]:
+        gl, gv, pm = pronostico.get_marcador_sugerido()
+        st.markdown(f"<h1 style='color:#FF4B4B; text-align:center;'>{gl} - {gv}</h1>", unsafe_allow_html=True)
+        st.caption(f"Prob: {pm:.1f}%")
+    with cols[1]:
         st.subheader("📊 Resultado")
         st.metric("Local", f"{pronostico.p_win:.1f}%")
         st.metric("Empate", f"{pronostico.p_draw:.1f}%")
         st.metric("Visitante", f"{pronostico.p_lose:.1f}%")
-    
-    with cols_metricas[2]:
+    with cols[2]:
         st.subheader("⚽ Goles")
-        color_over = "green-big" if pronostico.prob_over_25 > 70 else "big-font"
-        st.markdown(f"<p class='{color_over}'>Over 2.5: {pronostico.prob_over_25:.1f}%</p>", 
-                   unsafe_allow_html=True)
-        st.markdown(f"<p class='big-font'>Under 2.5: {pronostico.prob_under_25:.1f}%</p>", 
-                   unsafe_allow_html=True)
+        co = "green-big" if pronostico.prob_over_25>70 else "big-font"
+        st.markdown(f"<p class='{co}'>Over 2.5: {pronostico.prob_over_25:.1f}%</p>", unsafe_allow_html=True)
+        st.markdown(f"<p class='big-font'>Under 2.5: {pronostico.prob_under_25:.1f}%</p>", unsafe_allow_html=True)
+    with cols[3]:
+        st.subheader("🥅 Ambos")
+        ca = "green-big" if pronostico.prob_ambos>65 else "big-font"
+        st.markdown(f"<p class='{ca}'>{pronostico.prob_ambos:.1f}%</p>", unsafe_allow_html=True)
     
-    with cols_metricas[3]:
-        st.subheader("🥅 Ambos Marcan")
-        color_ambos = "green-big" if pronostico.prob_ambos > 65 else "big-font"
-        st.markdown(f"<p class='{color_ambos}'>{pronostico.prob_ambos:.1f}%</p>", 
-                   unsafe_allow_html=True)
-    
-    # ========================================================================
-    # RATING DE CONFIANZA Y CUOTAS
-    # ========================================================================
-    
-    col_r1, col_r2, col_r3 = st.columns(3)
-    
-    with col_r1:
-        st.metric("📊 Confianza Global", f"{rating_confianza}%")
-        if rating_confianza > 70:
-            st.success("🔒 Confianza ALTA")
-        elif rating_confianza > 50:
-            st.warning("⚠️ Confianza MEDIA")
+    colr1, colr2, colr3 = st.columns(3)
+    with colr1:
+        st.metric("📊 Confianza", f"{rating}%")
+        if rating>70: st.success("ALTA")
+        elif rating>50: st.warning("MEDIA")
+        else: st.error("BAJA")
+    with colr2:
+        if cuotas_disp and 'local' in cuotas_disp:
+            st.metric("💰 Mejor Local", f"{cuotas_disp['local']['cuota']:.2f}")
+            st.caption(cuotas_disp['local']['casa'])
         else:
-            st.error("🔓 Confianza BAJA")
-    
-    with col_r2:
-        if cuotas_disponibles and 'local' in cuotas_disponibles:
-            st.metric("💰 Mejor Cuota Local", f"{cuotas_disponibles['local']['cuota']:.2f}")
-            st.caption(f"{cuotas_disponibles['local']['casa']}")
+            st.metric("💰 Mejor Local", "No disponible")
+    with colr3:
+        if cuotas_disp and 'visitante' in cuotas_disp:
+            st.metric("💰 Mejor Visitante", f"{cuotas_disp['visitante']['cuota']:.2f}")
+            st.caption(cuotas_disp['visitante']['casa'])
         else:
-            st.metric("💰 Mejor Cuota Local", "No disponible")
-    
-    with col_r3:
-        if cuotas_disponibles and 'visitante' in cuotas_disponibles:
-            st.metric("💰 Mejor Cuota Visitante", f"{cuotas_disponibles['visitante']['cuota']:.2f}")
-            st.caption(f"{cuotas_disponibles['visitante']['casa']}")
-        else:
-            st.metric("💰 Mejor Cuota Visitante", "No disponible")
-    
-    # ========================================================================
-    # TENDENCIAS DE EQUIPOS CON COLORES (CORREGIDO)
-    # ========================================================================
+            st.metric("💰 Mejor Visitante", "No disponible")
     
     st.divider()
-    st.subheader("📈 FORMA RECIENTE (Últimos 10 partidos)")
-    
-    col_t1, col_t2 = st.columns(2)
-    
-    with col_t1:
+    st.subheader("📈 FORMA RECIENTE (últimos 10)")
+    colt1, colt2 = st.columns(2)
+    with colt1:
         st.markdown(f"**🏠 {local}**")
-        if tendencia_local:
-            # Mostrar forma con colores
-            forma_html = "<div class='forma-container'>"
-            for letra in tendencia_local['forma']:
-                forma_html += f"<div class='forma-item forma-{letra}'>{letra}</div>"
-            forma_html += "</div>"
-            st.markdown(forma_html, unsafe_allow_html=True)
-            
-            # Estadísticas con colores
-            col_est1, col_est2, col_est3 = st.columns(3)
-            with col_est1:
-                st.markdown(f"<p style='color: #2ecc71; font-weight: bold; font-size: 20px;'>{tendencia_local['rachas']['victorias']}</p>", unsafe_allow_html=True)
-                st.caption("Victorias")
-            with col_est2:
-                st.markdown(f"<p style='color: #f1c40f; font-weight: bold; font-size: 20px;'>{tendencia_local['rachas']['empates']}</p>", unsafe_allow_html=True)
-                st.caption("Empates")
-            with col_est3:
-                st.markdown(f"<p style='color: #e74c3c; font-weight: bold; font-size: 20px;'>{tendencia_local['rachas']['derrotas']}</p>", unsafe_allow_html=True)
-                st.caption("Derrotas")
+        if tend_local:
+            html = "<div class='forma-container'>"
+            for letra in tend_local['forma']:
+                html += f"<div class='forma-item forma-{letra}'>{letra}</div>"
+            html += "</div>"
+            st.markdown(html, unsafe_allow_html=True)
+            c1,c2,c3 = st.columns(3)
+            c1.markdown(f"<p style='color:#2ecc71; font-weight:bold; font-size:20px;'>{tend_local['rachas']['victorias']}</p>", unsafe_allow_html=True); c1.caption("G")
+            c2.markdown(f"<p style='color:#f1c40f; font-weight:bold; font-size:20px;'>{tend_local['rachas']['empates']}</p>", unsafe_allow_html=True); c2.caption("E")
+            c3.markdown(f"<p style='color:#e74c3c; font-weight:bold; font-size:20px;'>{tend_local['rachas']['derrotas']}</p>", unsafe_allow_html=True); c3.caption("P")
         else:
-            st.info("No hay datos suficientes")
-    
-    with col_t2:
+            st.info("Sin datos")
+    with colt2:
         st.markdown(f"**🚀 {visitante}**")
-        if tendencia_visit:
-            # Mostrar forma con colores
-            forma_html = "<div class='forma-container'>"
-            for letra in tendencia_visit['forma']:
-                forma_html += f"<div class='forma-item forma-{letra}'>{letra}</div>"
-            forma_html += "</div>"
-            st.markdown(forma_html, unsafe_allow_html=True)
-            
-            # Estadísticas con colores
-            col_est4, col_est5, col_est6 = st.columns(3)
-            with col_est4:
-                st.markdown(f"<p style='color: #2ecc71; font-weight: bold; font-size: 20px;'>{tendencia_visit['rachas']['victorias']}</p>", unsafe_allow_html=True)
-                st.caption("Victorias")
-            with col_est5:
-                st.markdown(f"<p style='color: #f1c40f; font-weight: bold; font-size: 20px;'>{tendencia_visit['rachas']['empates']}</p>", unsafe_allow_html=True)
-                st.caption("Empates")
-            with col_est6:
-                st.markdown(f"<p style='color: #e74c3c; font-weight: bold; font-size: 20px;'>{tendencia_visit['rachas']['derrotas']}</p>", unsafe_allow_html=True)
-                st.caption("Derrotas")
+        if tend_visit:
+            html = "<div class='forma-container'>"
+            for letra in tend_visit['forma']:
+                html += f"<div class='forma-item forma-{letra}'>{letra}</div>"
+            html += "</div>"
+            st.markdown(html, unsafe_allow_html=True)
+            c1,c2,c3 = st.columns(3)
+            c1.markdown(f"<p style='color:#2ecc71; font-weight:bold; font-size:20px;'>{tend_visit['rachas']['victorias']}</p>", unsafe_allow_html=True); c1.caption("G")
+            c2.markdown(f"<p style='color:#f1c40f; font-weight:bold; font-size:20px;'>{tend_visit['rachas']['empates']}</p>", unsafe_allow_html=True); c2.caption("E")
+            c3.markdown(f"<p style='color:#e74c3c; font-weight:bold; font-size:20px;'>{tend_visit['rachas']['derrotas']}</p>", unsafe_allow_html=True); c3.caption("P")
         else:
-            st.info("No hay datos suficientes")
+            st.info("Sin datos")
     
-    # ========================================================================
-    # VALUE BET DESTACADO
-    # ========================================================================
-    
-    if value_analysis and value_analysis['mejor_value']:
+    if value_analysis and value_analysis.get('mejor_value'):
         st.divider()
-        value = value_analysis['mejor_value']['value']
-        if value > 10:
-            st.markdown(f"""
-            <div class="value-alta">
-                <span style="font-size:24px;">🔥 VALUE BET FUERTE</span><br>
-                Apuesta por <b>{value_analysis['mejor_value']['mercado']}</b><br>
-                Cuota: {value_analysis['mejor_value']['cuota']:.2f} | Ventaja: +{value:.1f}%
-            </div>
-            """, unsafe_allow_html=True)
-        elif value > 5:
-            st.markdown(f"""
-            <div class="value-media">
-                <span style="font-size:24px;">💰 VALUE BET DETECTADO</span><br>
-                Apuesta por <b>{value_analysis['mejor_value']['mercado']}</b><br>
-                Cuota: {value_analysis['mejor_value']['cuota']:.2f} | Ventaja: +{value:.1f}%
-            </div>
-            """, unsafe_allow_html=True)
-    
-    # ========================================================================
-    # TOP 5 APUESTAS MÁS SEGURAS
-    # ========================================================================
+        v = value_analysis['mejor_value']['value']
+        if v > 10:
+            st.markdown(f"<div class='value-alta'><span style='font-size:24px;'>🔥 VALUE FUERTE</span><br>Apuesta por <b>{value_analysis['mejor_value']['mercado']}</b><br>Cuota: {value_analysis['mejor_value']['cuota']:.2f} | Ventaja: +{v:.1f}%</div>", unsafe_allow_html=True)
+        elif v > 5:
+            st.markdown(f"<div class='value-media'><span style='font-size:24px;'>💰 VALUE DETECTADO</span><br>Apuesta por <b>{value_analysis['mejor_value']['mercado']}</b><br>Cuota: {value_analysis['mejor_value']['cuota']:.2f} | Ventaja: +{v:.1f}%</div>", unsafe_allow_html=True)
     
     st.divider()
-    st.subheader("🎯 TOP 5 - APUESTAS MÁS SEGURAS")
-    
-    for i, apuesta in enumerate(apuestas_seguras[:5]):
-        if apuesta['seguridad'] == 'ALTA':
-            color = "#2ecc71"; emoji = "🟢"
-        elif apuesta['seguridad'] == 'MEDIA':
-            color = "#f1c40f"; emoji = "🟡"
-        else:
-            color = "#e74c3c"; emoji = "🔴"
-        
-        ve = calcular_valor_esperado(apuesta['probabilidad'], apuesta['cuota'])
-        
-        col_a1, col_a2, col_a3, col_a4 = st.columns([3, 1, 1, 1])
-        
-        with col_a1:
-            st.markdown(f"**{i+1}. {apuesta['nombre']}**")
-            st.caption(f"{apuesta['tipo']}")
-        
-        with col_a2:
-            st.markdown(f"<p style='color:{color}; font-weight:bold; font-size:20px;'>{apuesta['probabilidad']:.1f}%</p>", 
-                       unsafe_allow_html=True)
-        
-        with col_a3:
-            st.markdown(f"<p style='font-size:20px;'>{emoji}</p>", unsafe_allow_html=True)
-        
-        with col_a4:
-            if ve > 5:
-                st.markdown(f"<p style='color:#2ecc71; font-weight:bold;'>+{ve:.1f}%</p>", unsafe_allow_html=True)
-            elif ve < -5:
-                st.markdown(f"<p style='color:#e74c3c;'>{ve:.1f}%</p>", unsafe_allow_html=True)
-            else:
-                st.markdown(f"{ve:.1f}%")
-    
-    # ========================================================================
-    # COMBINADAS RECOMENDADAS
-    # ========================================================================
+    st.subheader("🎯 TOP 5 APUESTAS MÁS SEGURAS")
+    for i, ap in enumerate(apuestas_seguras[:5]):
+        col = "#2ecc71" if ap['seguridad']=='ALTA' else "#f1c40f" if ap['seguridad']=='MEDIA' else "#e74c3c"
+        emo = "🟢" if ap['seguridad']=='ALTA' else "🟡" if ap['seguridad']=='MEDIA' else "🔴"
+        ve = calcular_valor_esperado(ap['probabilidad'], ap['cuota'])
+        ca1, ca2, ca3, ca4 = st.columns([3,1,1,1])
+        ca1.markdown(f"**{i+1}. {ap['nombre']}**"); ca1.caption(ap['tipo'])
+        ca2.markdown(f"<p style='color:{col}; font-weight:bold; font-size:20px;'>{ap['probabilidad']:.1f}%</p>", unsafe_allow_html=True)
+        ca3.markdown(f"<p style='font-size:20px;'>{emo}</p>", unsafe_allow_html=True)
+        if ve > 5: ca4.markdown(f"<p style='color:#2ecc71; font-weight:bold;'>+{ve:.1f}%</p>", unsafe_allow_html=True)
+        elif ve < -5: ca4.markdown(f"<p style='color:#e74c3c;'>{ve:.1f}%</p>", unsafe_allow_html=True)
+        else: ca4.markdown(f"{ve:.1f}%")
     
     if combinadas:
         st.divider()
         st.subheader("🔗 COMBINADAS INTELIGENTES")
-        
-        for i, comb in enumerate(combinadas):
-            with st.expander(f"📊 Combinada {i+1}: {comb['nombre']} - Prob: {comb['probabilidad']:.1f}%"):
-                col_c1, col_c2 = st.columns(2)
-                with col_c1:
-                    st.markdown("**Apuestas:**")
-                    for apuesta in comb['apuestas']:
-                        st.markdown(f"• {apuesta}")
-                with col_c2:
-                    st.metric("Probabilidad conjunta", f"{comb['probabilidad']:.1f}%")
-                    st.metric("Cuota estimada", f"{comb['cuota_estimada']:.2f}")
-    
-    # ========================================================================
-    # ANÁLISIS POR MERCADOS
-    # ========================================================================
+        for i, cb in enumerate(combinadas):
+            with st.expander(f"📊 {cb['nombre']} - Prob: {cb['probabilidad']:.1f}%"):
+                cc1, cc2 = st.columns(2)
+                cc1.markdown("**Apuestas:**")
+                for a in cb['apuestas']: cc1.markdown(f"• {a}")
+                cc2.metric("Prob conjunta", f"{cb['probabilidad']:.1f}%")
+                cc2.metric("Cuota estimada", f"{cb['cuota_estimada']:.2f}")
     
     st.divider()
     st.subheader("📊 ANÁLISIS POR MERCADOS")
-    
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 1X2", "⚽ Over/Under", "🥅 Ambos Marcan", "📈 Handicap"])
-    
+    tab1, tab2, tab3, tab4 = st.tabs(["1X2","Over/Under","Ambos","Handicap"])
     with tab1:
-        col_m1, col_m2, col_m3 = st.columns(3)
-        with col_m1:
-            st.markdown(f"**🏠 {local}**")
-            st.markdown(f"<p class='big-font'>{mercados['1x2']['local']:.1f}%</p>", unsafe_allow_html=True)
-        with col_m2:
-            st.markdown(f"**🤝 Empate**")
-            st.markdown(f"<p class='big-font'>{mercados['1x2']['empate']:.1f}%</p>", unsafe_allow_html=True)
-        with col_m3:
-            st.markdown(f"**🚀 {visitante}**")
-            st.markdown(f"<p class='big-font'>{mercados['1x2']['visitante']:.1f}%</p>", unsafe_allow_html=True)
-    
+        colx1,colx2,colx3 = st.columns(3)
+        colx1.markdown(f"**🏠 {local}**"); colx1.markdown(f"<p class='big-font'>{mercados['1x2']['local']:.1f}%</p>", unsafe_allow_html=True)
+        colx2.markdown("**🤝 Empate**"); colx2.markdown(f"<p class='big-font'>{mercados['1x2']['empate']:.1f}%</p>", unsafe_allow_html=True)
+        colx3.markdown(f"**🚀 {visitante}**"); colx3.markdown(f"<p class='big-font'>{mercados['1x2']['visitante']:.1f}%</p>", unsafe_allow_html=True)
     with tab2:
-        cols_ou = st.columns(3)
-        mercados_ou = list(mercados['over_under'].items())
-        for i, (nombre, prob) in enumerate(mercados_ou[:6]):
-            with cols_ou[i % 3]:
-                st.markdown(f"**{nombre}**")
+        cols = st.columns(3)
+        items = list(mercados['over_under'].items())[:6]
+        for i,(nom,prob) in enumerate(items):
+            with cols[i%3]:
+                st.markdown(f"**{nom}**")
                 st.markdown(f"<p class='big-font'>{prob:.1f}%</p>", unsafe_allow_html=True)
-    
     with tab3:
-        col_b1, col_b2 = st.columns(2)
-        with col_b1:
-            st.markdown(f"**✅ SI**")
-            st.markdown(f"<p class='big-font'>{mercados['ambos_marcan']['Si']:.1f}%</p>", unsafe_allow_html=True)
-        with col_b2:
-            st.markdown(f"**❌ NO**")
-            st.markdown(f"<p class='big-font'>{mercados['ambos_marcan']['No']:.1f}%</p>", unsafe_allow_html=True)
-    
+        cb1,cb2 = st.columns(2)
+        cb1.markdown("**✅ SI**"); cb1.markdown(f"<p class='big-font'>{mercados['ambos_marcan']['Si']:.1f}%</p>", unsafe_allow_html=True)
+        cb2.markdown("**❌ NO**"); cb2.markdown(f"<p class='big-font'>{mercados['ambos_marcan']['No']:.1f}%</p>", unsafe_allow_html=True)
     with tab4:
-        cols_h1, cols_h2 = st.columns(2)
-        with cols_h1:
-            st.metric("Local -0.5", f"{mercados['handicap']['Local -0.5']:.1f}%")
-            st.metric("Local +0.5", f"{mercados['handicap']['Local +0.5']:.1f}%")
-        with cols_h2:
-            st.metric("Visitante -0.5", f"{mercados['handicap']['Visitante -0.5']:.1f}%")
-            st.metric("Visitante +0.5", f"{mercados['handicap']['Visitante +0.5']:.1f}%")
-    
-    # ========================================================================
-    # PROBABILIDAD DE GOL INDIVIDUAL
-    # ========================================================================
+        ch1,ch2 = st.columns(2)
+        ch1.metric("Local -0.5", f"{mercados['handicap']['Local -0.5']:.1f}%")
+        ch1.metric("Local +0.5", f"{mercados['handicap']['Local +0.5']:.1f}%")
+        ch2.metric("Visitante -0.5", f"{mercados['handicap']['Visitante -0.5']:.1f}%")
+        ch2.metric("Visitante +0.5", f"{mercados['handicap']['Visitante +0.5']:.1f}%")
     
     st.divider()
     st.subheader("🎯 Probabilidad de anotar")
-    
-    col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
-    
-    with col_g1:
-        color_local = "green-big" if pronostico.prob_local_1 > 75 else "big-font"
+    cg1,cg2,cg3 = st.columns([2,2,1])
+    with cg1:
         st.markdown(f"**{local}**")
-        st.markdown(f"<p class='{color_local}'>{pronostico.prob_local_1:.1f}%</p>", unsafe_allow_html=True)
-    
-    with col_g2:
-        color_visit = "green-big" if pronostico.prob_visitante_1 > 75 else "big-font"
+        st.markdown(f"<p class='{'green-big' if pronostico.prob_local_1>75 else 'big-font'}'>{pronostico.prob_local_1:.1f}%</p>", unsafe_allow_html=True)
+    with cg2:
         st.markdown(f"**{visitante}**")
-        st.markdown(f"<p class='{color_visit}'>{pronostico.prob_visitante_1:.1f}%</p>", unsafe_allow_html=True)
-    
-    with col_g3:
-        fiabilidad, color_fiab, tooltip = pronostico.get_fiabilidad()
+        st.markdown(f"<p class='{'green-big' if pronostico.prob_visitante_1>75 else 'big-font'}'>{pronostico.prob_visitante_1:.1f}%</p>", unsafe_allow_html=True)
+    with cg3:
+        fiab, colf, tip = pronostico.get_fiabilidad()
         st.markdown("**Fiabilidad**")
-        st.markdown(f"<p style='color:{color_fiab}; font-weight:bold;'>{fiabilidad}</p>", unsafe_allow_html=True)
-        st.caption(tooltip)
-    
-    # ========================================================================
-    # ESTADÍSTICAS DEL PARTIDO
-    # ========================================================================
+        st.markdown(f"<p style='color:{colf}; font-weight:bold;'>{fiab}</p>", unsafe_allow_html=True)
+        st.caption(tip)
     
     st.divider()
     st.subheader("📈 Estadísticas Previstas")
-    
-    col_e1, col_e2, col_e3 = st.columns(3)
-    with col_e1:
-        st.metric("🎯 Corners", f"{pronostico.corners_total:.1f}")
-    with col_e2:
-        st.metric("🟨 Tarjetas", f"{pronostico.tarjetas_total:.1f}")
-    with col_e3:
-        st.metric("⚖️ Faltas", f"{pronostico.faltas_total:.1f}")
-    
-    # ========================================================================
-    # GRÁFICOS
-    # ========================================================================
+    ce1,ce2,ce3 = st.columns(3)
+    ce1.metric("🎯 Corners", f"{pronostico.corners_total:.1f}")
+    ce2.metric("🟨 Tarjetas", f"{pronostico.tarjetas_total:.1f}")
+    ce3.metric("⚖️ Faltas", f"{pronostico.faltas_total:.1f}")
     
     if mostrar_graficos:
         st.divider()
         st.subheader("📊 Tendencias")
-        tab_g1, tab_g2 = st.tabs([f"📈 {local}", f"📈 {visitante}"])
-        
-        with tab_g1:
-            fig_local = crear_grafico_tendencias(d_local.tail(30), local)
-            if fig_local: 
-                st.plotly_chart(fig_local, use_container_width=True)
-            else: 
-                st.info("No hay suficientes datos")
-        
-        with tab_g2:
-            fig_visit = crear_grafico_tendencias(d_visitante.tail(30), visitante)
-            if fig_visit: 
-                st.plotly_chart(fig_visit, use_container_width=True)
-            else: 
-                st.info("No hay suficientes datos")
-    
-    # ========================================================================
-    # HISTORIAL H2H
-    # ========================================================================
+        tg1, tg2 = st.tabs([f"📈 {local}", f"📈 {visitante}"])
+        with tg1:
+            fig = crear_grafico_tendencias(d_local.tail(30), local)
+            if fig: st.plotly_chart(fig, use_container_width=True)
+            else: st.info("Sin datos")
+        with tg2:
+            fig = crear_grafico_tendencias(d_visit.tail(30), visitante)
+            if fig: st.plotly_chart(fig, use_container_width=True)
+            else: st.info("Sin datos")
     
     st.divider()
-    st.subheader("🔙 Historial Enfrentamientos")
-    
+    st.subheader("🔙 Historial")
     h2h = obtener_historial_h2h(df_total, local, visitante)
-    
     if not h2h.empty:
-        for _, partido in h2h.iterrows():
-            fecha = partido['Date'].strftime('%d/%m/%Y') if pd.notna(partido['Date']) else 'Fecha?'
-            goles_l = int(partido['FTHG']); goles_v = int(partido['FTAG'])
-            
-            if goles_l > goles_v: 
-                resultado = "🏠" if partido['HomeTeam'] == local else "🚀"
-            elif goles_l < goles_v: 
-                resultado = "🚀" if partido['HomeTeam'] == local else "🏠"
-            else: 
-                resultado = "🤝"
-            
-            corners = int(partido.get('HC', 0) + partido.get('AC', 0))
-            tarjetas = int(partido.get('HY', 0) + partido.get('AY', 0) + 
-                          partido.get('HR', 0) + partido.get('AR', 0))
-            
-            cuotas_text = ""
-            for casa in ['B365', 'PS', 'WH']:
-                if f'{casa}H' in partido and pd.notna(partido[f'{casa}H']):
-                    cuotas_text = f" | Cuota: {partido[f'{casa}H']:.2f}"
+        for _, p in h2h.iterrows():
+            fecha = p['Date'].strftime('%d/%m/%Y') if pd.notna(p['Date']) else '?'
+            gl = int(p['FTHG']); gv = int(p['FTAG'])
+            if gl > gv: res = "🏠" if p['HomeTeam']==local else "🚀"
+            elif gl < gv: res = "🚀" if p['HomeTeam']==local else "🏠"
+            else: res = "🤝"
+            corners = int(p.get('HC',0)+p.get('AC',0))
+            tarjetas = int(p.get('HY',0)+p.get('AY',0)+p.get('HR',0)+p.get('AR',0))
+            cuo = ""
+            for casa in ['B365','PS','WH']:
+                if f'{casa}H' in p and pd.notna(p[f'{casa}H']):
+                    cuo = f" | Cuota: {p[f'{casa}H']:.2f}"
                     break
-            
-            st.markdown(f"📅 {fecha} {resultado} | **{partido['HomeTeam']} {goles_l}-{goles_v} {partido['AwayTeam']}** | 🎯 {corners} | 🟨 {tarjetas}{cuotas_text}")
+            st.markdown(f"📅 {fecha} {res} | **{p['HomeTeam']} {gl}-{gv} {p['AwayTeam']}** | 🎯 {corners} | 🟨 {tarjetas}{cuo}")
     else:
-        st.info("No hay historial entre estos equipos")
-    
-    # ========================================================================
-    # EXPORTAR
-    # ========================================================================
+        st.info("Sin historial")
     
     st.divider()
-    col_exp1, col_exp2 = st.columns(2)
-    
-    with col_exp1:
-        datos_export = {
+    col_e1, col_e2 = st.columns(2)
+    with col_e1:
+        data = {
             'Fecha': datetime.now().strftime('%Y-%m-%d %H:%M'),
             'Local': local, 'Visitante': visitante,
-            'Prob_Local': round(pronostico.p_win, 1),
-            'Prob_Empate': round(pronostico.p_draw, 1),
-            'Prob_Visitante': round(pronostico.p_lose, 1),
-            'Over_2.5': round(pronostico.prob_over_25, 1),
-            'Ambos_Marcan': round(pronostico.prob_ambos, 1),
-            'Confianza_IA': rating_confianza
+            'Prob_Local': round(pronostico.p_win,1),
+            'Prob_Empate': round(pronostico.p_draw,1),
+            'Prob_Visitante': round(pronostico.p_lose,1),
+            'Over_2.5': round(pronostico.prob_over_25,1),
+            'Ambos_Marcan': round(pronostico.prob_ambos,1),
+            'Confianza_IA': rating
         }
-        df_export = pd.DataFrame([datos_export])
-        csv = df_export.to_csv(index=False)
-        
-        st.download_button("📥 Exportar CSV", data=csv, 
-                          file_name=f"pronostico_{local}_vs_{visitante}.csv",
-                          mime="text/csv", use_container_width=True)
-    
-    with col_exp2:
+        df_exp = pd.DataFrame([data])
+        csv = df_exp.to_csv(index=False)
+        st.download_button("📥 Exportar CSV", data=csv, file_name=f"pronostico_{local}_vs_{visitante}.csv", mime="text/csv", use_container_width=True)
+    with col_e2:
         if st.button("🔄 Nuevo Pronóstico", use_container_width=True):
             st.rerun()
-
-# ============================================================================
-# EJECUCIÓN
-# ============================================================================
 
 if __name__ == "__main__":
     main()
