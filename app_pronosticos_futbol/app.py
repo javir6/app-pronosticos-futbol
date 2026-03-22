@@ -15,7 +15,6 @@ from io import StringIO
 # ============================================================================
 
 def detectar_movil():
-    """Detecta si es dispositivo móvil por el user agent"""
     try:
         user_agent = st.query_params.get("user_agent", [""])
         mobile_keywords = ['mobile', 'android', 'iphone', 'ipad']
@@ -32,7 +31,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed" if ES_MOVIL else "expanded"
 )
 
-# Estilos personalizados
+# Estilos personalizados (igual que antes)
 st.markdown("""
 <style>
     .big-font { font-size:26px !important; font-weight: bold; }
@@ -175,90 +174,13 @@ def cargar_datos():
 
 def actualizar_csv(progreso_bar, status_text):
     """Actualiza la base de datos con TODAS las ligas europeas disponibles"""
-    # Temporadas: prioridad a la actual y anterior
     temporadas = ['2526', '2425']
     
-    # ========================================================================
-    # TODAS LAS LIGAS EUROPEAS (códigos football-data.co.uk)
-    # ========================================================================
     ligas = [
-        # 🌍 TOP 5 (principales)
-        "SP1", "SP2",        # España (La Liga, La Liga 2)
-        "E0", "E1", "E2",    # Inglaterra (Premier, Championship, League One)
-        "I1", "I2",          # Italia (Serie A, Serie B)
-        "D1", "D2",          # Alemania (Bundesliga, 2. Bundesliga)
-        "F1", "F2",          # Francia (Ligue 1, Ligue 2)
-        
-        # 🇵🇹 Portugal
-        "P1",                # Primeira Liga
-        
-        # 🇳🇱 Países Bajos
-        "N1",                # Eredivisie
-        
-        # 🇧🇪 Bélgica
-        "B1",                # Pro League
-        
-        # 🇹🇷 Turquía
-        "T1",                # Süper Lig
-        
-        # 🇬🇷 Grecia
-        "G1",                # Super League
-        
-        # 🏴󠁧󠁢󠁳󠁣󠁴󠁿 Escocia
-        "SC0", "SC1", "SC2", "SC3",  # Premiership, Championship, League One, League Two
-        
-        # 🇦🇹 Austria
-        "A1",                # Bundesliga (austriaca)
-        
-        # 🇨🇭 Suiza
-        "C1",                # Super League
-        
-        # 🇩🇰 Dinamarca
-        "D1", "D2",          # Superliga, 1. Division (ojo: D1 es Alemania, así que cuidado con duplicados)
-                             # En football-data.co.uk, Dinamarca usa "DK1" para Superliga
-        "DK1",               # Dinamarca Superliga
-        
-        # 🇸🇪 Suecia
-        "SE1", "SE2",        # Allsvenskan, Superettan
-        
-        # 🇳🇴 Noruega
-        "NO1", "NO2",        # Eliteserien, 1. Division
-        
-        # 🇫🇮 Finlandia
-        "FI1",               # Veikkausliiga
-        
-        # 🇵🇱 Polonia
-        "PO1",               # Ekstraklasa
-        
-        # 🇨🇿 República Checa
-        "CZ1",               # Fortuna Liga
-        
-        # 🇷🇺 Rusia (si aún está disponible)
-        "RU1",               # Premier Liga
-        
-        # 🇺🇦 Ucrania
-        "UA1",               # Premier Liga
-        
-        # 🇭🇷 Croacia
-        "HR1",               # Prva HNL
-        
-        # 🇷🇸 Serbia
-        "SR1",               # Super Liga
-        
-        # 🇧🇬 Bulgaria
-        "BG1",               # Parva Liga
-        
-        # 🇷🇴 Rumanía
-        "RO1",               # Liga I
-        
-        # 🇭🇺 Hungría
-        "HU1",               # NB I
-        
-        # 🇸🇰 Eslovaquia
-        "SK1",               # Fortuna Liga
-        
-        # 🇸🇮 Eslovenia
-        "SI1",               # Prva Liga
+        "SP1", "SP2", "E0", "E1", "E2", "I1", "I2", "D1", "D2", "F1", "F2",
+        "P1", "N1", "B1", "T1", "G1", "SC0", "SC1", "SC2", "SC3", "A1",
+        "C1", "DK1", "SE1", "SE2", "NO1", "NO2", "FI1", "PO1", "CZ1", "RU1",
+        "UA1", "HR1", "SR1", "BG1", "RO1", "HU1", "SK1", "SI1"
     ]
     
     total_archivos = len(temporadas) * len(ligas)
@@ -283,13 +205,13 @@ def actualizar_csv(progreso_bar, status_text):
                 
                 if response.status_code == 200 and len(response.text) > 100:
                     df_temp = pd.read_csv(StringIO(response.text))
-                    # Añadir columna de temporada
                     df_temp['Temporada'] = t
                     df_temp['Liga'] = cod
                     
-                    # Columnas de interés
+                    # Añadimos columnas de goles por mitad
                     cols = ['Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'FTR', 'Div', 'Temporada', 'Liga',
                            'HC', 'AC', 'HF', 'AF', 'HY', 'AY', 'HR', 'AR',
+                           'H1G', 'A1G', 'H2G', 'A2G',  # Goles por mitad
                            'B365H', 'B365D', 'B365A', 'PSC', 'PSH', 'PSD', 'PSA',
                            'WHH', 'WHD', 'WHA', 'VCH', 'VCD', 'VCA',
                            'MaxH', 'MaxD', 'MaxA', 'AvgH', 'AvgD', 'AvgA']
@@ -330,22 +252,6 @@ def obtener_historial_h2h(df, local, visitante, limite=8):
            ((df['HomeTeam'] == visitante) & (df['AwayTeam'] == local))
     return df[mask].sort_values('Date', ascending=False).head(limite)
 
-def crear_grafico_tendencias(df, equipo):
-    datos_goles = []
-    for _, row in df.iterrows():
-        if row['HomeTeam'] == equipo:
-            datos_goles.append({'fecha': row['Date'], 'goles': row['FTHG'], 'condicion': 'Local', 'rival': row['AwayTeam']})
-        elif row['AwayTeam'] == equipo:
-            datos_goles.append({'fecha': row['Date'], 'goles': row['FTAG'], 'condicion': 'Visitante', 'rival': row['HomeTeam']})
-    if datos_goles:
-        df_goles = pd.DataFrame(datos_goles).sort_values('fecha').tail(15)
-        fig = px.line(df_goles, x='fecha', y='goles', color='condicion',
-                     title=f"📈 Tendencia de {equipo} (últimos 15 partidos)",
-                     markers=True, hover_data={'rival': True})
-        fig.update_layout(hovermode='x unified', showlegend=True, height=400)
-        return fig
-    return None
-
 # ============================================================================
 # FUNCIONES DE ANÁLISIS AVANZADO
 # ============================================================================
@@ -368,12 +274,6 @@ def calcular_probabilidades_todos_mercados(pronostico):
     }
     mercados['ambos_marcan'] = {'Si': pronostico.prob_ambos, 'No': 100 - pronostico.prob_ambos}
     mercados['goles_exactos'] = {f'Exactly {g}': poisson.pmf(g, pronostico.media_total) * 100 for g in range(7)}
-    mercados['handicap'] = {
-        'Local -0.5': pronostico.p_win,
-        'Visitante +0.5': pronostico.p_draw + pronostico.p_lose,
-        'Visitante -0.5': pronostico.p_lose,
-        'Local +0.5': pronostico.p_win + pronostico.p_draw
-    }
     return mercados
 
 def encontrar_mejores_cuotas(df_partido):
@@ -549,6 +449,57 @@ def analizar_tendencias_equipo(df, equipo):
             'rachas': {'victorias': res.count('G'), 'empates': res.count('E'), 'derrotas': res.count('P')}}
 
 # ============================================================================
+# NUEVA FUNCIÓN: PROBABILIDADES POR MITAD
+# ============================================================================
+
+def calcular_prob_mitades(df, equipo):
+    """
+    Calcula la probabilidad de que el equipo anote en la primera y segunda parte.
+    Utiliza los datos de goles por mitad (H1G, A1G, H2G, A2G) si existen.
+    Si no existen, estima con un reparto del 45% de los goles en primera parte.
+    """
+    # Datos donde el equipo juega como local
+    local_data = df[df['HomeTeam'] == equipo]
+    # Datos donde el equipo juega como visitante
+    away_data = df[df['AwayTeam'] == equipo]
+    
+    # Inicializar contadores
+    total_partidos = len(local_data) + len(away_data)
+    if total_partidos == 0:
+        # Sin datos, devolvemos estimación global
+        return None, None
+    
+    # Verificar si existen las columnas de goles por mitad
+    if 'H1G' in df.columns and 'A1G' in df.columns and 'H2G' in df.columns and 'A2G' in df.columns:
+        # Contar partidos donde anotó en primera parte
+        goles_1_local = local_data['H1G'].fillna(0).apply(lambda x: x > 0).sum()
+        goles_1_away = away_data['A1G'].fillna(0).apply(lambda x: x > 0).sum()
+        partidos_anotados_1 = goles_1_local + goles_1_away
+        
+        # Contar partidos donde anotó en segunda parte
+        goles_2_local = local_data['H2G'].fillna(0).apply(lambda x: x > 0).sum()
+        goles_2_away = away_data['A2G'].fillna(0).apply(lambda x: x > 0).sum()
+        partidos_anotados_2 = goles_2_local + goles_2_away
+        
+        prob_1 = (partidos_anotados_1 / total_partidos) * 100
+        prob_2 = (partidos_anotados_2 / total_partidos) * 100
+    else:
+        # Estimación basada en la media de goles totales y reparto 45% primera parte
+        # Media de goles del equipo (local + visitante)
+        goles_local = local_data['FTHG'].mean() if not local_data.empty else 0
+        goles_away = away_data['FTAG'].mean() if not away_data.empty else 0
+        media_goles = (goles_local + goles_away) / 2 if (len(local_data) + len(away_data)) > 0 else 0
+        
+        # Suponemos que el 45% de los goles se marcan en primera parte (datos históricos)
+        media_1 = media_goles * 0.45
+        media_2 = media_goles * 0.55
+        
+        prob_1 = (1 - poisson.pmf(0, media_1)) * 100
+        prob_2 = (1 - poisson.pmf(0, media_2)) * 100
+    
+    return prob_1, prob_2
+
+# ============================================================================
 # INTERFAZ PRINCIPAL
 # ============================================================================
 
@@ -595,7 +546,6 @@ def main():
         st.info(f"📊 {len(eq_cuotas)} equipos con cuotas históricas")
         
         num_partidos = st.slider("📊 Partidos a analizar", 5, 50, 20, 5)
-        mostrar_graficos = st.checkbox("📈 Mostrar gráficos", value=True)
         st.divider()
         
         st.header("⭐ MIS FAVORITOS")
@@ -660,10 +610,13 @@ def main():
     
     mercados = calcular_probabilidades_todos_mercados(pronostico)
     apuestas_seguras = recomendar_apuesta_segura(pronostico, cuotas_disp)
-    combinadas = generar_combinadas_inteligentes(pronostico)
     rating = calcular_rating_confianza(pronostico)
     value_analysis = analizar_value_bets(pronostico, cuotas_disp)
     alertas = check_alertas(pronostico, cuotas_disp, value_analysis)
+    
+    # Calcular probabilidades de anotar por mitades
+    prob_local_1, prob_local_2 = calcular_prob_mitades(df_total, local)
+    prob_visit_1, prob_visit_2 = calcular_prob_mitades(df_total, visitante)
     
     if alertas:
         st.divider()
@@ -767,42 +720,86 @@ def main():
         elif ve < -5: ca4.markdown(f"<p style='color:#e74c3c;'>{ve:.1f}%</p>", unsafe_allow_html=True)
         else: ca4.markdown(f"{ve:.1f}%")
     
-    if combinadas:
-        st.divider()
-        st.subheader("🔗 COMBINADAS INTELIGENTES")
-        for i, cb in enumerate(combinadas):
-            with st.expander(f"📊 {cb['nombre']} - Prob: {cb['probabilidad']:.1f}%"):
-                cc1, cc2 = st.columns(2)
-                cc1.markdown("**Apuestas:**")
-                for a in cb['apuestas']: cc1.markdown(f"• {a}")
-                cc2.metric("Prob conjunta", f"{cb['probabilidad']:.1f}%")
-                cc2.metric("Cuota estimada", f"{cb['cuota_estimada']:.2f}")
+    # ========================================================================
+    # NUEVA SECCIÓN: ESTADÍSTICAS PREVISTAS MEJORADA
+    # ========================================================================
+    st.divider()
+    st.subheader("📈 Estadísticas Previstas")
     
+    # Fila 1: Métricas clásicas (corners, tarjetas, faltas)
+    col_e1, col_e2, col_e3 = st.columns(3)
+    with col_e1:
+        st.metric("🎯 Corners", f"{pronostico.corners_total:.1f}")
+    with col_e2:
+        st.metric("🟨 Tarjetas", f"{pronostico.tarjetas_total:.1f}")
+    with col_e3:
+        st.metric("⚖️ Faltas", f"{pronostico.faltas_total:.1f}")
+    
+    # Fila 2: Probabilidades de anotar por mitades
+    st.write("---")
+    st.subheader("🎯 Probabilidad de anotar por partes")
+    col_p1, col_p2 = st.columns(2)
+    with col_p1:
+        st.markdown(f"**{local}**")
+        if prob_local_1 is not None:
+            st.metric("1ª Parte", f"{prob_local_1:.1f}%")
+            st.metric("2ª Parte", f"{prob_local_2:.1f}%")
+        else:
+            st.info("Sin datos históricos suficientes")
+    with col_p2:
+        st.markdown(f"**{visitante}**")
+        if prob_visit_1 is not None:
+            st.metric("1ª Parte", f"{prob_visit_1:.1f}%")
+            st.metric("2ª Parte", f"{prob_visit_2:.1f}%")
+        else:
+            st.info("Sin datos históricos suficientes")
+    
+    # ========================================================================
+    # ANÁLISIS POR MERCADOS (sin handicap, over/under reorganizado)
+    # ========================================================================
     st.divider()
     st.subheader("📊 ANÁLISIS POR MERCADOS")
-    tab1, tab2, tab3, tab4 = st.tabs(["1X2","Over/Under","Ambos","Handicap"])
+    tab1, tab2, tab3 = st.tabs(["1X2", "Over/Under", "Ambos Marcan"])
+    
     with tab1:
-        colx1,colx2,colx3 = st.columns(3)
-        colx1.markdown(f"**🏠 {local}**"); colx1.markdown(f"<p class='big-font'>{mercados['1x2']['local']:.1f}%</p>", unsafe_allow_html=True)
-        colx2.markdown("**🤝 Empate**"); colx2.markdown(f"<p class='big-font'>{mercados['1x2']['empate']:.1f}%</p>", unsafe_allow_html=True)
-        colx3.markdown(f"**🚀 {visitante}**"); colx3.markdown(f"<p class='big-font'>{mercados['1x2']['visitante']:.1f}%</p>", unsafe_allow_html=True)
+        colx1, colx2, colx3 = st.columns(3)
+        colx1.markdown(f"**🏠 {local}**")
+        colx1.markdown(f"<p class='big-font'>{mercados['1x2']['local']:.1f}%</p>", unsafe_allow_html=True)
+        colx2.markdown("**🤝 Empate**")
+        colx2.markdown(f"<p class='big-font'>{mercados['1x2']['empate']:.1f}%</p>", unsafe_allow_html=True)
+        colx3.markdown(f"**🚀 {visitante}**")
+        colx3.markdown(f"<p class='big-font'>{mercados['1x2']['visitante']:.1f}%</p>", unsafe_allow_html=True)
+    
     with tab2:
-        cols = st.columns(3)
-        items = list(mercados['over_under'].items())[:6]
-        for i,(nom,prob) in enumerate(items):
-            with cols[i%3]:
-                st.markdown(f"**{nom}**")
-                st.markdown(f"<p class='big-font'>{prob:.1f}%</p>", unsafe_allow_html=True)
+        # Mostrar Over y Under en dos columnas
+        ou_items = list(mercados['over_under'].items())
+        # Separar Over y Under
+        over_items = [(k, v) for k, v in ou_items if k.startswith('Over')]
+        under_items = [(k, v) for k, v in ou_items if k.startswith('Under')]
+        # Ordenar Over por número ascendente (0.5,1.5,2.5,3.5)
+        over_items.sort(key=lambda x: float(x[0].split()[1]))
+        under_items.sort(key=lambda x: float(x[0].split()[1]))
+        
+        col_over, col_under = st.columns(2)
+        with col_over:
+            st.markdown("**Over**")
+            for nom, prob in over_items:
+                st.markdown(f"{nom}: **{prob:.1f}%**")
+        with col_under:
+            st.markdown("**Under**")
+            for nom, prob in under_items:
+                st.markdown(f"{nom}: **{prob:.1f}%**")
+    
     with tab3:
-        cb1,cb2 = st.columns(2)
-        cb1.markdown("**✅ SI**"); cb1.markdown(f"<p class='big-font'>{mercados['ambos_marcan']['Si']:.1f}%</p>", unsafe_allow_html=True)
-        cb2.markdown("**❌ NO**"); cb2.markdown(f"<p class='big-font'>{mercados['ambos_marcan']['No']:.1f}%</p>", unsafe_allow_html=True)
-    with tab4:
-        ch1,ch2 = st.columns(2)
-        ch1.metric("Local -0.5", f"{mercados['handicap']['Local -0.5']:.1f}%")
-        ch1.metric("Local +0.5", f"{mercados['handicap']['Local +0.5']:.1f}%")
-        ch2.metric("Visitante -0.5", f"{mercados['handicap']['Visitante -0.5']:.1f}%")
-        ch2.metric("Visitante +0.5", f"{mercados['handicap']['Visitante +0.5']:.1f}%")
+        cb1, cb2 = st.columns(2)
+        cb1.markdown("**✅ SI**")
+        cb1.markdown(f"<p class='big-font'>{mercados['ambos_marcan']['Si']:.1f}%</p>", unsafe_allow_html=True)
+        cb2.markdown("**❌ NO**")
+        cb2.markdown(f"<p class='big-font'>{mercados['ambos_marcan']['No']:.1f}%</p>", unsafe_allow_html=True)
+    
+    # ========================================================================
+    # RESTO DE SECCIONES (sin cambios)
+    # ========================================================================
     
     st.divider()
     st.subheader("🎯 Probabilidad de anotar")
@@ -818,26 +815,6 @@ def main():
         st.markdown("**Fiabilidad**")
         st.markdown(f"<p style='color:{colf}; font-weight:bold;'>{fiab}</p>", unsafe_allow_html=True)
         st.caption(tip)
-    
-    st.divider()
-    st.subheader("📈 Estadísticas Previstas")
-    ce1,ce2,ce3 = st.columns(3)
-    ce1.metric("🎯 Corners", f"{pronostico.corners_total:.1f}")
-    ce2.metric("🟨 Tarjetas", f"{pronostico.tarjetas_total:.1f}")
-    ce3.metric("⚖️ Faltas", f"{pronostico.faltas_total:.1f}")
-    
-    if mostrar_graficos:
-        st.divider()
-        st.subheader("📊 Tendencias")
-        tg1, tg2 = st.tabs([f"📈 {local}", f"📈 {visitante}"])
-        with tg1:
-            fig = crear_grafico_tendencias(d_local.tail(30), local)
-            if fig: st.plotly_chart(fig, use_container_width=True)
-            else: st.info("Sin datos")
-        with tg2:
-            fig = crear_grafico_tendencias(d_visit.tail(30), visitante)
-            if fig: st.plotly_chart(fig, use_container_width=True)
-            else: st.info("Sin datos")
     
     st.divider()
     st.subheader("🔙 Historial")
