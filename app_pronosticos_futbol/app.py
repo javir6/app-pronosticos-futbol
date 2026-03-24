@@ -3,8 +3,6 @@ import pandas as pd
 import numpy as np
 from scipy.stats import poisson
 import requests
-import plotly.express as px
-import plotly.graph_objects as go
 import os
 from datetime import datetime
 import time
@@ -31,7 +29,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed" if ES_MOVIL else "expanded"
 )
 
-# Estilos personalizados (igual que antes)
+# Estilos (sin cambios)
 st.markdown("""
 <style>
     .big-font { font-size:26px !important; font-weight: bold; }
@@ -51,9 +49,26 @@ st.markdown("""
         color: white; padding: 15px; border-radius: 10px; margin: 10px 0;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-    .alerta-card { padding: 15px; border-radius: 10px; margin: 10px 0; font-weight: bold; }
-    .alerta-verde { background-color: #e8f5e9; border-left: 5px solid #2e7d32; }
-    .alerta-amarilla { background-color: #fff8e1; border-left: 5px solid #ff8f00; }
+    
+    .alerta-card {
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
+        font-weight: bold;
+        border-left: 5px solid;
+        background-color: #f8f9fa;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .alerta-verde {
+        border-left-color: #2e7d32;
+        background-color: #e8f5e9;
+        color: #1b5e20;
+    }
+    .alerta-amarilla {
+        border-left-color: #ff8f00;
+        background-color: #fff8e1;
+        color: #e65100;
+    }
     
     .forma-container { display: flex; gap: 5px; margin: 10px 0; flex-wrap: wrap; }
     .forma-item { width: 35px; height: 35px; display: flex; align-items: center; 
@@ -71,7 +86,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# CLASE PRINCIPAL PARA PRONÓSTICOS
+# CLASE PRINCIPAL (sin cambios)
 # ============================================================================
 
 class PronosticadorFutbol:
@@ -188,8 +203,10 @@ def actualizar_csv(progreso_bar, status_text):
     lista_dfs = []
     errores = []
     exitosos = 0
-    
     error_container = st.empty()
+    
+    # Para depuración: contar partidos por temporada
+    conteo_temp = {t: 0 for t in temporadas}
     
     for t in temporadas:
         for cod in ligas:
@@ -208,10 +225,9 @@ def actualizar_csv(progreso_bar, status_text):
                     df_temp['Temporada'] = t
                     df_temp['Liga'] = cod
                     
-                    # Añadimos columnas de goles por mitad
                     cols = ['Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'FTR', 'Div', 'Temporada', 'Liga',
                            'HC', 'AC', 'HF', 'AF', 'HY', 'AY', 'HR', 'AR',
-                           'H1G', 'A1G', 'H2G', 'A2G',  # Goles por mitad
+                           'H1G', 'A1G', 'H2G', 'A2G',
                            'B365H', 'B365D', 'B365A', 'PSC', 'PSH', 'PSD', 'PSA',
                            'WHH', 'WHD', 'WHA', 'VCH', 'VCD', 'VCA',
                            'MaxH', 'MaxD', 'MaxA', 'AvgH', 'AvgD', 'AvgA']
@@ -219,6 +235,7 @@ def actualizar_csv(progreso_bar, status_text):
                     if existentes:
                         lista_dfs.append(df_temp[existentes])
                         exitosos += 1
+                        conteo_temp[t] += len(df_temp)
                 else:
                     errores.append(f"{t}/{cod} - error")
             except Exception as e:
@@ -243,6 +260,10 @@ def actualizar_csv(progreso_bar, status_text):
         
         df_final = pd.concat(lista_dfs, ignore_index=True)
         df_final.to_csv("datos_historicos.csv", index=False)
+        
+        # Mostrar resumen por temporada
+        st.info(f"Resumen por temporada: {conteo_temp}")
+        
         return True, len(df_final), errores
     
     return False, 0, errores
@@ -253,7 +274,7 @@ def obtener_historial_h2h(df, local, visitante, limite=8):
     return df[mask].sort_values('Date', ascending=False).head(limite)
 
 # ============================================================================
-# FUNCIONES DE ANÁLISIS AVANZADO
+# FUNCIONES DE ANÁLISIS AVANZADO (con ajuste para columna de liga)
 # ============================================================================
 
 def calcular_probabilidades_todos_mercados(pronostico):
@@ -306,7 +327,6 @@ def calcular_valor_esperado(prob_real, cuota):
 
 def recomendar_apuesta_segura(pronostico, cuotas_disponibles):
     todas = []
-    # 1X2
     todas.append({'nombre': f'Local: {pronostico.local}', 'tipo': '1X2',
                   'probabilidad': pronostico.p_win,
                   'cuota': cuotas_disponibles.get('local', {}).get('cuota', 1.0) if cuotas_disponibles else 1.0,
@@ -319,12 +339,10 @@ def recomendar_apuesta_segura(pronostico, cuotas_disponibles):
                   'probabilidad': pronostico.p_lose,
                   'cuota': cuotas_disponibles.get('visitante', {}).get('cuota', 1.0) if cuotas_disponibles else 1.0,
                   'seguridad': 'ALTA' if pronostico.p_lose > 60 else 'MEDIA' if pronostico.p_lose > 45 else 'BAJA'})
-    # Over/Under
     todas.append({'nombre': 'Over 2.5', 'tipo': 'Totales', 'probabilidad': pronostico.prob_over_25, 'cuota': 2.0,
                   'seguridad': 'ALTA' if pronostico.prob_over_25 > 65 else 'MEDIA' if pronostico.prob_over_25 > 50 else 'BAJA'})
     todas.append({'nombre': 'Under 2.5', 'tipo': 'Totales', 'probabilidad': pronostico.prob_under_25, 'cuota': 1.9,
                   'seguridad': 'ALTA' if pronostico.prob_under_25 > 65 else 'MEDIA' if pronostico.prob_under_25 > 50 else 'BAJA'})
-    # Ambos marcan
     todas.append({'nombre': 'Ambos marcan - SI', 'tipo': 'Ambos Marcan', 'probabilidad': pronostico.prob_ambos, 'cuota': 1.95,
                   'seguridad': 'ALTA' if pronostico.prob_ambos > 65 else 'MEDIA' if pronostico.prob_ambos > 50 else 'BAJA'})
     todas.append({'nombre': 'Ambos marcan - NO', 'tipo': 'Ambos Marcan', 'probabilidad': 100 - pronostico.prob_ambos, 'cuota': 1.85,
@@ -333,6 +351,7 @@ def recomendar_apuesta_segura(pronostico, cuotas_disponibles):
     return todas
 
 def generar_combinadas_inteligentes(pronostico):
+    # (se mantiene pero no se usa)
     combis = []
     if pronostico.p_win > 55 and pronostico.prob_over_25 > 55:
         prob = (pronostico.p_win/100)*(pronostico.prob_over_25/100)*100
@@ -391,8 +410,11 @@ def analizar_value_bets(pronostico, cuotas_disponibles):
     return res
 
 def analizar_ligas(df_total):
-    if 'Div' not in df_total.columns:
+    """Devuelve estadísticas por liga usando la columna 'Liga' si existe, o 'Div' en su defecto."""
+    col_liga = 'Liga' if 'Liga' in df_total.columns else ('Div' if 'Div' in df_total.columns else None)
+    if col_liga is None:
         return pd.DataFrame()
+    
     ligas_dict = {
         'SP1': 'La Liga', 'SP2': 'La Liga 2', 'E0': 'Premier', 'E1': 'Championship',
         'I1': 'Serie A', 'D1': 'Bundesliga', 'F1': 'Ligue 1', 'P1': 'Liga Portugal',
@@ -406,7 +428,7 @@ def analizar_ligas(df_total):
     }
     stats = []
     for cod, nombre in ligas_dict.items():
-        df_liga = df_total[df_total['Div'] == cod]
+        df_liga = df_total[df_total[col_liga] == cod]
         if len(df_liga) > 10:
             media_goles = (df_liga['FTHG'].mean() + df_liga['FTAG'].mean()) / 2
             stats.append({
@@ -424,11 +446,14 @@ def check_alertas(pronostico, cuotas_disponibles, value_analysis):
                         'mensaje': f"{value_analysis['mejor_value']['mercado']} con +{value_analysis['mejor_value']['value']:.1f}%"})
     max_prob = max(pronostico.p_win, pronostico.p_draw, pronostico.p_lose)
     if max_prob > 70:
-        alertas.append({'tipo': '🎯 FAVORITO CLARO', 'mensaje': f"{max_prob:.1f}% de probabilidad"})
+        alertas.append({'tipo': '🎯 FAVORITO CLARO',
+                        'mensaje': f"{max_prob:.1f}% de probabilidad"})
     if pronostico.prob_over_25 > 75:
-        alertas.append({'tipo': '⚽ MUCHOS GOLES', 'mensaje': f"Over 2.5 al {pronostico.prob_over_25:.1f}%"})
+        alertas.append({'tipo': '⚽ MUCHOS GOLES',
+                        'mensaje': f"Over 2.5 al {pronostico.prob_over_25:.1f}%"})
     if pronostico.prob_ambos > 75:
-        alertas.append({'tipo': '🥅 AMBOS MARCAN SEGURO', 'mensaje': f"{pronostico.prob_ambos:.1f}% de probabilidad"})
+        alertas.append({'tipo': '🥅 AMBOS MARCAN SEGURO',
+                        'mensaje': f"{pronostico.prob_ambos:.1f}% de probabilidad"})
     return alertas
 
 def analizar_tendencias_equipo(df, equipo):
@@ -448,35 +473,18 @@ def analizar_tendencias_equipo(df, equipo):
     return {'forma': ''.join(res),
             'rachas': {'victorias': res.count('G'), 'empates': res.count('E'), 'derrotas': res.count('P')}}
 
-# ============================================================================
-# NUEVA FUNCIÓN: PROBABILIDADES POR MITAD
-# ============================================================================
-
 def calcular_prob_mitades(df, equipo):
-    """
-    Calcula la probabilidad de que el equipo anote en la primera y segunda parte.
-    Utiliza los datos de goles por mitad (H1G, A1G, H2G, A2G) si existen.
-    Si no existen, estima con un reparto del 45% de los goles en primera parte.
-    """
-    # Datos donde el equipo juega como local
     local_data = df[df['HomeTeam'] == equipo]
-    # Datos donde el equipo juega como visitante
     away_data = df[df['AwayTeam'] == equipo]
-    
-    # Inicializar contadores
     total_partidos = len(local_data) + len(away_data)
     if total_partidos == 0:
-        # Sin datos, devolvemos estimación global
         return None, None
     
-    # Verificar si existen las columnas de goles por mitad
     if 'H1G' in df.columns and 'A1G' in df.columns and 'H2G' in df.columns and 'A2G' in df.columns:
-        # Contar partidos donde anotó en primera parte
         goles_1_local = local_data['H1G'].fillna(0).apply(lambda x: x > 0).sum()
         goles_1_away = away_data['A1G'].fillna(0).apply(lambda x: x > 0).sum()
         partidos_anotados_1 = goles_1_local + goles_1_away
         
-        # Contar partidos donde anotó en segunda parte
         goles_2_local = local_data['H2G'].fillna(0).apply(lambda x: x > 0).sum()
         goles_2_away = away_data['A2G'].fillna(0).apply(lambda x: x > 0).sum()
         partidos_anotados_2 = goles_2_local + goles_2_away
@@ -484,16 +492,11 @@ def calcular_prob_mitades(df, equipo):
         prob_1 = (partidos_anotados_1 / total_partidos) * 100
         prob_2 = (partidos_anotados_2 / total_partidos) * 100
     else:
-        # Estimación basada en la media de goles totales y reparto 45% primera parte
-        # Media de goles del equipo (local + visitante)
         goles_local = local_data['FTHG'].mean() if not local_data.empty else 0
         goles_away = away_data['FTAG'].mean() if not away_data.empty else 0
         media_goles = (goles_local + goles_away) / 2 if (len(local_data) + len(away_data)) > 0 else 0
-        
-        # Suponemos que el 45% de los goles se marcan en primera parte (datos históricos)
         media_1 = media_goles * 0.45
         media_2 = media_goles * 0.55
-        
         prob_1 = (1 - poisson.pmf(0, media_1)) * 100
         prob_2 = (1 - poisson.pmf(0, media_2)) * 100
     
@@ -537,7 +540,6 @@ def main():
     
     with st.sidebar:
         st.header("⚙️ CONFIGURACIÓN")
-        # Indicador de cuotas
         eq_cuotas = []
         for eq in equipos[:30]:
             hh = obtener_historial_h2h(df_total, eq, eq)
@@ -566,6 +568,8 @@ def main():
         df_ligas = analizar_ligas(df_total)
         if not df_ligas.empty:
             st.dataframe(df_ligas, use_container_width=True, height=200)
+        else:
+            st.info("No hay suficientes datos por liga (mínimo 10 partidos por liga).")
         st.divider()
         
         if st.button("🔄 Actualizar Base de Datos", use_container_width=True):
@@ -594,7 +598,6 @@ def main():
         idx = min(1, len(disp)-1) if len(disp)>1 else 0
         visitante = st.selectbox("🚀 Visitante", disp, index=idx)
     
-    # Filtrar datos
     d_local = df_total[(df_total['HomeTeam']==local)|(df_total['AwayTeam']==local)]
     d_visit = df_total[(df_total['HomeTeam']==visitante)|(df_total['AwayTeam']==visitante)]
     if d_local.empty or d_visit.empty:
@@ -614,7 +617,6 @@ def main():
     value_analysis = analizar_value_bets(pronostico, cuotas_disp)
     alertas = check_alertas(pronostico, cuotas_disp, value_analysis)
     
-    # Calcular probabilidades de anotar por mitades
     prob_local_1, prob_local_2 = calcular_prob_mitades(df_total, local)
     prob_visit_1, prob_visit_2 = calcular_prob_mitades(df_total, visitante)
     
@@ -622,8 +624,16 @@ def main():
         st.divider()
         st.subheader("🚨 ALERTAS")
         for a in alertas:
-            cls = "alerta-verde" if "VALUE" in a['tipo'] or "MUCHOS" in a['tipo'] else "alerta-amarilla"
-            st.markdown(f"<div class='{cls} alerta-card'><span style='font-size:20px;'>{a['tipo']}</span><br>{a['mensaje']}</div>", unsafe_allow_html=True)
+            if "VALUE" in a['tipo']:
+                clase = "alerta-verde"
+            else:
+                clase = "alerta-amarilla"
+            st.markdown(f"""
+            <div class="alerta-card {clase}">
+                <span style="font-size:20px;">{a['tipo']}</span><br>
+                {a['mensaje']}
+            </div>
+            """, unsafe_allow_html=True)
     
     st.divider()
     cols = st.columns(4)
@@ -721,12 +731,11 @@ def main():
         else: ca4.markdown(f"{ve:.1f}%")
     
     # ========================================================================
-    # NUEVA SECCIÓN: ESTADÍSTICAS PREVISTAS MEJORADA
+    # ESTADÍSTICAS PREVISTAS (con mitades)
     # ========================================================================
     st.divider()
     st.subheader("📈 Estadísticas Previstas")
     
-    # Fila 1: Métricas clásicas (corners, tarjetas, faltas)
     col_e1, col_e2, col_e3 = st.columns(3)
     with col_e1:
         st.metric("🎯 Corners", f"{pronostico.corners_total:.1f}")
@@ -735,7 +744,6 @@ def main():
     with col_e3:
         st.metric("⚖️ Faltas", f"{pronostico.faltas_total:.1f}")
     
-    # Fila 2: Probabilidades de anotar por mitades
     st.write("---")
     st.subheader("🎯 Probabilidad de anotar por partes")
     col_p1, col_p2 = st.columns(2)
@@ -755,7 +763,7 @@ def main():
             st.info("Sin datos históricos suficientes")
     
     # ========================================================================
-    # ANÁLISIS POR MERCADOS (sin handicap, over/under reorganizado)
+    # ANÁLISIS POR MERCADOS (sin handicap)
     # ========================================================================
     st.divider()
     st.subheader("📊 ANÁLISIS POR MERCADOS")
@@ -771,12 +779,9 @@ def main():
         colx3.markdown(f"<p class='big-font'>{mercados['1x2']['visitante']:.1f}%</p>", unsafe_allow_html=True)
     
     with tab2:
-        # Mostrar Over y Under en dos columnas
         ou_items = list(mercados['over_under'].items())
-        # Separar Over y Under
         over_items = [(k, v) for k, v in ou_items if k.startswith('Over')]
         under_items = [(k, v) for k, v in ou_items if k.startswith('Under')]
-        # Ordenar Over por número ascendente (0.5,1.5,2.5,3.5)
         over_items.sort(key=lambda x: float(x[0].split()[1]))
         under_items.sort(key=lambda x: float(x[0].split()[1]))
         
@@ -798,9 +803,8 @@ def main():
         cb2.markdown(f"<p class='big-font'>{mercados['ambos_marcan']['No']:.1f}%</p>", unsafe_allow_html=True)
     
     # ========================================================================
-    # RESTO DE SECCIONES (sin cambios)
+    # RESTO DE SECCIONES (probabilidad individual, historial, exportar)
     # ========================================================================
-    
     st.divider()
     st.subheader("🎯 Probabilidad de anotar")
     cg1,cg2,cg3 = st.columns([2,2,1])
