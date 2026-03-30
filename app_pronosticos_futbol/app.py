@@ -4,16 +4,14 @@ import numpy as np
 from scipy.stats import poisson
 import requests
 import os
-import json
 import hashlib
-import uuid
 import time
 import re
 import itertools
 import warnings
 import json as _json
 from io import StringIO
-from datetime import datetime, timedelta
+from datetime import datetime
 from difflib import get_close_matches
 warnings.filterwarnings('ignore')
 
@@ -21,19 +19,20 @@ warnings.filterwarnings('ignore')
 # ============================================================================
 # SISTEMA DE CONTRASEÑA Y ACCESO
 # ============================================================================
-# Necesitas crear un archivo "password.txt" en la misma carpeta con la
-# contraseña dentro, por ejemplo:   futbol2026
-# ============================================================================
 
 PASSWORD_FILE  = "password.txt"
-ADMIN_PASSWORD = "admin_jr6_secret"   # ← cámbiala, es solo para el panel admin
+ADMIN_PASSWORD = "admin_jr6_secret"   # ← cámbiala
 
 
 def _leer_password():
+    # 1. Primero intenta Streamlit Secrets (Streamlit Cloud)
+    try:
+        return st.secrets["PASSWORD"]
+    except Exception:
+        pass
+    # 2. Si no hay secrets, lee desde archivo local
     if not os.path.exists(PASSWORD_FILE):
-        with open(PASSWORD_FILE, "w") as f:
-            f.write("futbol2026")
-        return "futbol2026"
+        return "Angus2026"   # contraseña por defecto
     with open(PASSWORD_FILE, "r") as f:
         return f.read().strip()
 
@@ -43,11 +42,6 @@ def _hash(texto):
 
 
 def verificar_acceso():
-    """
-    Muestra pantalla de login si no está autenticado.
-    Comprueba en cada acción si la contraseña ha cambiado.
-    Devuelve True si puede acceder, False si no.
-    """
     if st.session_state.get('autenticado'):
         password_actual = _leer_password()
         if st.session_state.get('password_hash') != _hash(password_actual):
@@ -55,7 +49,6 @@ def verificar_acceso():
             st.rerun()
         return True
 
-    # Ocultar sidebar en la pantalla de login
     st.markdown("""
     <style>
         [data-testid="stSidebar"] { display: none; }
@@ -71,12 +64,8 @@ def verificar_acceso():
     </div>
     """, unsafe_allow_html=True)
 
-    pwd_input = st.text_input(
-        "🔑 Contraseña",
-        type="password",
-        placeholder="Escribe la contraseña...",
-        key="login_pwd"
-    )
+    pwd_input = st.text_input("🔑 Contraseña", type="password",
+                               placeholder="Escribe la contraseña...", key="login_pwd")
     entrar = st.button("🚀 Entrar", use_container_width=True, type="primary")
 
     if entrar:
@@ -94,24 +83,19 @@ def verificar_acceso():
         else:
             st.error("❌ Contraseña incorrecta.")
 
-    st.markdown(
-        "<p style='text-align:center; color:#555; font-size:13px; margin-top:20px;'>"
-        "¿No tienes acceso? Contacta con el administrador.</p>",
-        unsafe_allow_html=True
-    )
+    st.markdown("<p style='text-align:center;color:#555;font-size:13px;margin-top:20px;'>"
+                "¿No tienes acceso? Contacta con el administrador.</p>", unsafe_allow_html=True)
     return False
 
 
 def mostrar_info_sesion_sidebar():
-    """Muestra info de sesión y botón de cerrar sesión en el sidebar."""
     ts = st.session_state.get('login_ts', '')
     with st.sidebar:
         st.markdown(
-            f"<div style='background:#1a1a2e; border:1px solid #e94560; "
-            f"border-radius:8px; padding:10px 14px; margin-bottom:8px;'>"
-            f"<span style='color:#e94560; font-weight:bold;'>🔓 Sesión activa</span><br>"
-            f"<span style='color:#888; font-size:11px;'>Desde {ts}</span>"
-            f"</div>",
+            f"<div style='background:#1a1a2e;border:1px solid #e94560;"
+            f"border-radius:8px;padding:10px 14px;margin-bottom:8px;'>"
+            f"<span style='color:#e94560;font-weight:bold;'>🔓 Sesión activa</span><br>"
+            f"<span style='color:#888;font-size:11px;'>Desde {ts}</span></div>",
             unsafe_allow_html=True
         )
         if st.button("🚪 Cerrar sesión", use_container_width=True, key="logout_btn"):
@@ -120,45 +104,31 @@ def mostrar_info_sesion_sidebar():
 
 
 def mostrar_panel_cambio_password():
-    """Panel en el sidebar para cambiar la contraseña desde la app."""
     with st.sidebar:
         with st.expander("🔧 Panel Administrador", expanded=False):
-            admin_pwd = st.text_input(
-                "Contraseña de admin",
-                type="password",
-                key="admin_pwd_chk",
-                placeholder="Solo para el administrador"
-            )
+            admin_pwd = st.text_input("Contraseña de admin", type="password",
+                                       key="admin_pwd_chk", placeholder="Solo para el administrador")
             if admin_pwd != ADMIN_PASSWORD:
-                if admin_pwd:
-                    st.error("❌ Contraseña de admin incorrecta.")
+                if admin_pwd: st.error("❌ Contraseña de admin incorrecta.")
                 return
-
             st.success("✅ Acceso de administrador")
             st.divider()
-
             st.markdown("**🔑 Cambiar contraseña de acceso**")
             nueva_pwd = st.text_input("Nueva contraseña", key="nueva_pwd_in")
             confirmar = st.text_input("Confirmar", type="password", key="confirm_pwd_in")
-
             col_a, col_b = st.columns(2)
             with col_a:
                 if st.button("💾 Guardar", use_container_width=True, key="save_pwd"):
-                    if not nueva_pwd.strip():
-                        st.error("❌ No puede estar vacía.")
-                    elif nueva_pwd != confirmar:
-                        st.error("❌ No coinciden.")
-                    elif len(nueva_pwd) < 4:
-                        st.error("❌ Mínimo 4 caracteres.")
+                    if not nueva_pwd.strip():          st.error("❌ No puede estar vacía.")
+                    elif nueva_pwd != confirmar:       st.error("❌ No coinciden.")
+                    elif len(nueva_pwd) < 4:           st.error("❌ Mínimo 4 caracteres.")
                     else:
-                        with open(PASSWORD_FILE, "w") as f:
-                            f.write(nueva_pwd.strip())
+                        with open(PASSWORD_FILE, "w") as f: f.write(nueva_pwd.strip())
                         st.session_state['password_hash'] = _hash(nueva_pwd.strip())
                         st.success("✅ Contraseña cambiada.")
                         st.info("Los demás usuarios serán desconectados en su próxima acción.")
             with col_b:
-                pwd_actual = _leer_password()
-                st.code(f"Actual: {pwd_actual}", language=None)
+                st.code(f"Actual: {_leer_password()}", language=None)
 
 
 # ============================================================================
@@ -167,11 +137,9 @@ def mostrar_panel_cambio_password():
 
 def detectar_movil():
     try:
-        user_agent    = st.query_params.get("user_agent", [""])
-        mobile_keywords = ['mobile', 'android', 'iphone', 'ipad']
-        return any(keyword in str(user_agent).lower() for keyword in mobile_keywords)
-    except:
-        return False
+        user_agent = st.query_params.get("user_agent", [""])
+        return any(k in str(user_agent).lower() for k in ['mobile','android','iphone','ipad'])
+    except: return False
 
 ES_MOVIL = detectar_movil()
 
@@ -189,7 +157,6 @@ st.markdown("""
     .red-big   { color: #e74c3c; font-size:26px !important; font-weight: bold; }
     .yellow-big{ color: #f1c40f; font-size:26px !important; font-weight: bold; }
     .stButton>button { width: 100%; }
-
     .value-alta {
         background: linear-gradient(90deg, #27ae60 0%, #2ecc71 100%);
         color: white; padding: 15px; border-radius: 10px; margin: 10px 0;
@@ -208,7 +175,6 @@ st.markdown("""
     .alerta-verde    { border-left-color: #2e7d32; background-color: #e8f5e9; color: #1b5e20; }
     .alerta-amarilla { border-left-color: #ff8f00; background-color: #fff8e1; color: #e65100; }
     .alerta-azul     { border-left-color: #1565c0; background-color: #e3f2fd; color: #0d47a1; }
-
     .combo-winner {
         background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
         color: #e0e0e0; padding: 20px; border-radius: 14px; margin: 10px 0;
@@ -232,7 +198,6 @@ st.markdown("""
         padding: 3px 12px; font-size: 12px; font-weight: bold;
         display: inline-block; margin-bottom: 10px;
     }
-
     .q-table { width:100%; border-collapse:collapse; margin-top:10px; }
     .q-table th { background:#e94560; color:white; padding:8px 12px; text-align:left; font-size:13px; }
     .q-table td { padding:9px 12px; border-bottom:1px solid rgba(100,100,100,0.2); font-size:14px; }
@@ -243,10 +208,8 @@ st.markdown("""
     .t-simple { background:#1e3a5f; color:#90caf9; border-radius:10px; padding:2px 8px; font-size:11px; font-weight:bold; }
     .t-doble  { background:#3a1e5f; color:#ce93d8; border-radius:10px; padding:2px 8px; font-size:11px; font-weight:bold; }
     .t-triple { background:#5f3a1e; color:#ffcc80; border-radius:10px; padding:2px 8px; font-size:11px; font-weight:bold; }
-
     @media (max-width: 768px) {
         .stButton button { min-height: 50px; font-size: 18px; }
-        .stSelectbox div[data-baseweb="select"] { min-height: 50px; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -257,8 +220,7 @@ st.markdown("""
 # ============================================================================
 
 def calcular_pesos_temporales(fechas, factor_decaimiento=0.003):
-    if fechas.empty:
-        return np.array([])
+    if fechas.empty: return np.array([])
     fecha_max = fechas.max()
     dias_diff = (fecha_max - fechas).dt.days
     pesos     = np.exp(-factor_decaimiento * dias_diff)
@@ -266,24 +228,17 @@ def calcular_pesos_temporales(fechas, factor_decaimiento=0.003):
 
 
 def calcular_fortalezas_liga(df_liga, min_partidos=5):
-    if df_liga.empty or len(df_liga) < 10:
-        return {}, {}, {}, {}, 1.5, 1.2
-    media_local = df_liga['FTHG'].mean()
-    media_visit = df_liga['FTAG'].mean()
-    if media_local == 0 or media_visit == 0:
-        return {}, {}, {}, {}, 1.5, 1.2
+    if df_liga.empty or len(df_liga) < 10: return {},{},{},{},1.5,1.2
+    ml = df_liga['FTHG'].mean(); mv = df_liga['FTAG'].mean()
+    if ml == 0 or mv == 0: return {},{},{},{},1.5,1.2
     equipos = set(df_liga['HomeTeam'].unique()) | set(df_liga['AwayTeam'].unique())
-    attack_h, defence_h, attack_a, defence_a = {}, {}, {}, {}
+    ah,dh,aa,da = {},{},{},{}
     for eq in equipos:
-        hd = df_liga[df_liga['HomeTeam'] == eq]
-        if len(hd) >= min_partidos:
-            attack_h[eq]  = hd['FTHG'].mean() / media_local
-            defence_h[eq] = hd['FTAG'].mean() / media_visit
-        ad = df_liga[df_liga['AwayTeam'] == eq]
-        if len(ad) >= min_partidos:
-            attack_a[eq]  = ad['FTAG'].mean() / media_visit
-            defence_a[eq] = ad['FTHG'].mean() / media_local
-    return attack_h, defence_h, attack_a, defence_a, media_local, media_visit
+        hd = df_liga[df_liga['HomeTeam']==eq]
+        if len(hd)>=min_partidos: ah[eq]=hd['FTHG'].mean()/ml; dh[eq]=hd['FTAG'].mean()/mv
+        ad = df_liga[df_liga['AwayTeam']==eq]
+        if len(ad)>=min_partidos: aa[eq]=ad['FTAG'].mean()/mv; da[eq]=ad['FTHG'].mean()/ml
+    return ah,dh,aa,da,ml,mv
 
 
 # ============================================================================
@@ -293,149 +248,123 @@ def calcular_fortalezas_liga(df_liga, min_partidos=5):
 class PronosticadorDixonColes:
     def __init__(self, df_total, df_local, df_visitante, local, visitante,
                  num_partidos=20, factor_decaimiento=0.003):
-        self.df_total           = df_total
-        self.local              = local
-        self.visitante          = visitante
-        self.num_partidos       = num_partidos
-        self.factor_decaimiento = factor_decaimiento
-        self.df_local           = df_local.tail(num_partidos * 2)
-        self.df_visitante       = df_visitante.tail(num_partidos * 2)
+        self.df_total=df_total; self.local=local; self.visitante=visitante
+        self.num_partidos=num_partidos; self.factor_decaimiento=factor_decaimiento
+        self.df_local=df_local.tail(num_partidos*2)
+        self.df_visitante=df_visitante.tail(num_partidos*2)
         self._calcular_fortalezas_liga()
         self._calcular_medias_ponderadas()
         self._calcular_todo()
 
     def _calcular_fortalezas_liga(self):
-        col_liga = 'Liga' if 'Liga' in self.df_total.columns else (
-            'Div' if 'Div' in self.df_total.columns else None)
-        self.attack_h = self.defence_h = self.attack_a = self.defence_a = {}
-        self.media_liga_local = 1.5
-        self.media_liga_visit = 1.2
-        self.liga_detectada   = None
-        if col_liga is None:
-            return
-        data_eq = self.df_total[self.df_total['HomeTeam'] == self.local]
+        col_liga='Liga' if 'Liga' in self.df_total.columns else ('Div' if 'Div' in self.df_total.columns else None)
+        self.attack_h=self.defence_h=self.attack_a=self.defence_a={}
+        self.media_liga_local=1.5; self.media_liga_visit=1.2; self.liga_detectada=None
+        if col_liga is None: return
+        data_eq=self.df_total[self.df_total['HomeTeam']==self.local]
         if not data_eq.empty:
-            ligas_eq = data_eq[col_liga].value_counts()
+            ligas_eq=data_eq[col_liga].value_counts()
             if not ligas_eq.empty:
-                self.liga_detectada = ligas_eq.index[0]
-                df_liga = self.df_total[self.df_total[col_liga] == self.liga_detectada].copy()
-                ah, dh, aa, da, ml, mv = calcular_fortalezas_liga(df_liga)
-                self.attack_h, self.defence_h = ah, dh
-                self.attack_a, self.defence_a = aa, da
-                self.media_liga_local, self.media_liga_visit = ml, mv
+                self.liga_detectada=ligas_eq.index[0]
+                df_liga=self.df_total[self.df_total[col_liga]==self.liga_detectada].copy()
+                ah,dh,aa,da,ml,mv=calcular_fortalezas_liga(df_liga)
+                self.attack_h,self.defence_h=ah,dh; self.attack_a,self.defence_a=aa,da
+                self.media_liga_local,self.media_liga_visit=ml,mv
 
     def _calcular_media_ponderada_goles(self, df, equipo, condicion):
-        if condicion == 'local':
-            sub   = df[df['HomeTeam'] == equipo].copy()
-            goles = sub['FTHG']
-        else:
-            sub   = df[df['AwayTeam'] == equipo].copy()
-            goles = sub['FTAG']
-        if goles.empty:
-            return 0.0
-        gc = goles[goles <= 5]
-        sc = sub[goles <= 5]
-        if gc.empty:
-            return goles.mean()
+        if condicion=='local': sub=df[df['HomeTeam']==equipo].copy(); goles=sub['FTHG']
+        else:                  sub=df[df['AwayTeam']==equipo].copy();  goles=sub['FTAG']
+        if goles.empty: return 0.0
+        gc=goles[goles<=5]; sc=sub[goles<=5]
+        if gc.empty: return goles.mean()
         if 'Date' in sc.columns and not sc['Date'].isna().all():
-            pw = calcular_pesos_temporales(sc['Date'], self.factor_decaimiento)
-            if len(pw) == len(gc):
-                return np.average(gc.values, weights=pw)
+            pw=calcular_pesos_temporales(sc['Date'],self.factor_decaimiento)
+            if len(pw)==len(gc): return np.average(gc.values,weights=pw)
         return gc.mean()
 
     def _calcular_medias_ponderadas(self):
-        ml_raw = self._calcular_media_ponderada_goles(self.df_local,     self.local,     'local')
-        mv_raw = self._calcular_media_ponderada_goles(self.df_visitante, self.visitante, 'visitante')
+        ml_raw=self._calcular_media_ponderada_goles(self.df_local,    self.local,    'local')
+        mv_raw=self._calcular_media_ponderada_goles(self.df_visitante,self.visitante,'visitante')
         if (self.attack_h and self.defence_a
-                and self.local     in self.attack_h
-                and self.visitante in self.defence_a):
-            self.media_local     = (self.media_liga_local *
-                                    self.attack_h.get(self.local, 1.0) *
-                                    self.defence_a.get(self.visitante, 1.0))
-            self.media_visitante = (self.media_liga_visit *
-                                    self.attack_a.get(self.visitante, 1.0) *
-                                    self.defence_h.get(self.local, 1.0))
-            self.modo_modelo = "Dixon-Coles"
+                and self.local in self.attack_h and self.visitante in self.defence_a):
+            self.media_local    =(self.media_liga_local*self.attack_h.get(self.local,1.0)*self.defence_a.get(self.visitante,1.0))
+            self.media_visitante=(self.media_liga_visit*self.attack_a.get(self.visitante,1.0)*self.defence_h.get(self.local,1.0))
+            self.modo_modelo="Dixon-Coles"
         else:
-            self.media_local     = ml_raw if ml_raw > 0 else 1.2
-            self.media_visitante = mv_raw if mv_raw > 0 else 1.0
-            self.modo_modelo = "Poisson Ponderado"
-        self.media_local     = max(0.3, min(4.0, self.media_local))
-        self.media_visitante = max(0.3, min(4.0, self.media_visitante))
-        self.media_total     = self.media_local + self.media_visitante
+            self.media_local    =ml_raw if ml_raw>0 else 1.2
+            self.media_visitante=mv_raw if mv_raw>0 else 1.0
+            self.modo_modelo="Poisson Ponderado"
+        self.media_local    =max(0.3,min(4.0,self.media_local))
+        self.media_visitante=max(0.3,min(4.0,self.media_visitante))
+        self.media_total    =self.media_local+self.media_visitante
 
     def _calcular_todo(self):
-        self.prob_local_1     = (1 - poisson.pmf(0, self.media_local))     * 100
-        self.prob_visitante_1 = (1 - poisson.pmf(0, self.media_visitante)) * 100
-        self.prob_ambos       = (self.prob_local_1 / 100 * self.prob_visitante_1 / 100) * 100
-        self.prob_over_25     = (1 - poisson.cdf(2, self.media_total)) * 100
-        self.prob_under_25    = poisson.cdf(2, self.media_total) * 100
-        self.matriz, self.p_win, self.p_draw, self.p_lose = self._calcular_matriz()
-        self.corners_total  = self._calcular_media_estadistica('HC', 'AC')
-        self.tarjetas_total = self._calcular_media_estadistica(['HY', 'HR'], ['AY', 'AR'])
-        self.faltas_total   = self._calcular_media_estadistica('HF', 'AF')
+        self.prob_local_1    =(1-poisson.pmf(0,self.media_local))*100
+        self.prob_visitante_1=(1-poisson.pmf(0,self.media_visitante))*100
+        self.prob_ambos      =(self.prob_local_1/100*self.prob_visitante_1/100)*100
+        self.prob_over_25    =(1-poisson.cdf(2,self.media_total))*100
+        self.prob_under_25   =poisson.cdf(2,self.media_total)*100
+        self.matriz,self.p_win,self.p_draw,self.p_lose=self._calcular_matriz()
+        self.corners_total  =self._calcular_media_estadistica('HC','AC')
+        self.tarjetas_total =self._calcular_media_estadistica(['HY','HR'],['AY','AR'])
+        self.faltas_total   =self._calcular_media_estadistica('HF','AF')
 
     def _calcular_media_estadistica(self, col_local, col_visitante):
-        total = 0
-        for df, cols in [(self.df_local, col_local), (self.df_visitante, col_visitante)]:
-            if isinstance(cols, list):
+        total=0
+        for df,cols in [(self.df_local,col_local),(self.df_visitante,col_visitante)]:
+            if isinstance(cols,list):
                 for c in cols:
-                    if c in df.columns: total += df[c].mean() if not df[c].isna().all() else 0
+                    if c in df.columns: total+=df[c].mean() if not df[c].isna().all() else 0
             else:
-                if cols in df.columns: total += df[cols].mean() if not df[cols].isna().all() else 0
-        return max(0, total)
+                if cols in df.columns: total+=df[cols].mean() if not df[cols].isna().all() else 0
+        return max(0,total)
 
     def _calcular_matriz(self):
-        pl = [poisson.pmf(i, self.media_local)     for i in range(8)]
-        pv = [poisson.pmf(i, self.media_visitante) for i in range(8)]
-        m  = np.outer(pl, pv)
-        return m, np.sum(np.tril(m, -1))*100, np.diag(m).sum()*100, np.sum(np.triu(m, 1))*100
+        pl=[poisson.pmf(i,self.media_local)     for i in range(8)]
+        pv=[poisson.pmf(i,self.media_visitante) for i in range(8)]
+        m=np.outer(pl,pv)
+        return m,np.sum(np.tril(m,-1))*100,np.diag(m).sum()*100,np.sum(np.triu(m,1))*100
 
     def get_fiabilidad(self):
-        n = len(self.df_local) + len(self.df_visitante)
-        if n > 35:   return "ALTA",  "#2ecc71", "✅ Muestra muy representativa"
-        elif n > 20: return "MEDIA", "#f1c40f", "⚠️ Muestra aceptable"
-        else:        return "BAJA",  "#e74c3c", "❌ Pocos datos, usar con precaución"
+        n=len(self.df_local)+len(self.df_visitante)
+        if n>35:   return "ALTA", "#2ecc71","✅ Muestra muy representativa"
+        elif n>20: return "MEDIA","#f1c40f","⚠️ Muestra aceptable"
+        else:      return "BAJA", "#e74c3c","❌ Pocos datos, usar con precaución"
 
     def get_marcador_sugerido(self):
-        idx = np.unravel_index(np.argmax(self.matriz), self.matriz.shape)
-        return idx[0], idx[1], self.matriz[idx] * 100
+        idx=np.unravel_index(np.argmax(self.matriz),self.matriz.shape)
+        return idx[0],idx[1],self.matriz[idx]*100
 
 
 # ============================================================================
 # CACHÉ DE PRONÓSTICOS
 # ============================================================================
 
-MAX_CACHE_PRONOSTICOS = 20
+MAX_CACHE = 20
 
-def _cache_key(local, visitante, num_partidos, factor_decay):
-    return f"{local}|{visitante}|{num_partidos}|{factor_decay:.4f}"
+def _cache_key(local,visitante,num,decay):
+    return f"{local}|{visitante}|{num}|{decay:.4f}"
 
-def get_pronostico_cacheado(local, visitante, num_partidos, factor_decay):
-    cache = st.session_state.get('cache_pronosticos', {})
-    return cache.get(_cache_key(local, visitante, num_partidos, factor_decay), None)
+def get_pronostico_cacheado(local,visitante,num,decay):
+    return st.session_state.get('cache_pronosticos',{}).get(_cache_key(local,visitante,num,decay),None)
 
-def guardar_pronostico_cache(local, visitante, num_partidos, factor_decay, datos):
-    if 'cache_pronosticos' not in st.session_state:
-        st.session_state['cache_pronosticos'] = {}
-    if 'cache_orden' not in st.session_state:
-        st.session_state['cache_orden'] = []
-    key = _cache_key(local, visitante, num_partidos, factor_decay)
-    if key in st.session_state['cache_orden']:
-        st.session_state['cache_orden'].remove(key)
-    st.session_state['cache_pronosticos'][key] = datos
+def guardar_pronostico_cache(local,visitante,num,decay,datos):
+    if 'cache_pronosticos' not in st.session_state: st.session_state['cache_pronosticos']={}
+    if 'cache_orden'       not in st.session_state: st.session_state['cache_orden']=[]
+    key=_cache_key(local,visitante,num,decay)
+    if key in st.session_state['cache_orden']: st.session_state['cache_orden'].remove(key)
+    st.session_state['cache_pronosticos'][key]=datos
     st.session_state['cache_orden'].append(key)
-    while len(st.session_state['cache_orden']) > MAX_CACHE_PRONOSTICOS:
-        old = st.session_state['cache_orden'].pop(0)
-        st.session_state['cache_pronosticos'].pop(old, None)
+    while len(st.session_state['cache_orden'])>MAX_CACHE:
+        old=st.session_state['cache_orden'].pop(0)
+        st.session_state['cache_pronosticos'].pop(old,None)
 
 def mostrar_panel_cache_sidebar():
-    n = len(st.session_state.get('cache_pronosticos', {}))
-    if n > 0:
-        st.caption(f"🗂️ Pronósticos en caché: {n}/{MAX_CACHE_PRONOSTICOS}")
-        if st.button("🗑️ Limpiar caché", use_container_width=True, key="clear_cache"):
-            st.session_state['cache_pronosticos'] = {}
-            st.session_state['cache_orden'] = []
+    n=len(st.session_state.get('cache_pronosticos',{}))
+    if n>0:
+        st.caption(f"🗂️ Pronósticos en caché: {n}/{MAX_CACHE}")
+        if st.button("🗑️ Limpiar caché",use_container_width=True,key="clear_cache"):
+            st.session_state['cache_pronosticos']={}; st.session_state['cache_orden']=[]
             st.rerun()
 
 
@@ -444,380 +373,145 @@ def mostrar_panel_cache_sidebar():
 # ============================================================================
 
 def analizar_divergencia_temporadas(df_equipo, equipo, num_partidos):
-    if 'Temporada' not in df_equipo.columns:
-        return None
-    df_rec = df_equipo.tail(num_partidos * 2)
-    total  = len(df_rec)
-    if total == 0:
-        return None
-    n_actual   = (df_rec['Temporada'] == '2526').sum()
-    n_anterior = (df_rec['Temporada'] == '2425').sum()
-    pct_ant    = (n_anterior / total) * 100
-    return {'total': total, 'n_actual': int(n_actual), 'n_anterior': int(n_anterior),
-            'pct_anterior': round(pct_ant, 1), 'alerta': pct_ant > 60}
+    if 'Temporada' not in df_equipo.columns: return None
+    df_rec=df_equipo.tail(num_partidos*2); total=len(df_rec)
+    if total==0: return None
+    n_actual  =(df_rec['Temporada']=='2526').sum()
+    n_anterior=(df_rec['Temporada']=='2425').sum()
+    pct=n_anterior/total*100
+    return {'total':total,'n_actual':int(n_actual),'n_anterior':int(n_anterior),
+            'pct_anterior':round(pct,1),'alerta':pct>60}
 
 def check_alerta_divergencia(df_total, local, visitante, num_partidos):
-    alertas = []
-    for equipo in [local, visitante]:
-        df_eq  = df_total[(df_total['HomeTeam'] == equipo) | (df_total['AwayTeam'] == equipo)]
-        result = analizar_divergencia_temporadas(df_eq, equipo, num_partidos)
-        if result and result['alerta']:
-            alertas.append({'equipo': equipo, 'pct_anterior': result['pct_anterior'],
-                            'n_actual': result['n_actual'], 'n_anterior': result['n_anterior']})
+    alertas=[]
+    for equipo in [local,visitante]:
+        df_eq=df_total[(df_total['HomeTeam']==equipo)|(df_total['AwayTeam']==equipo)]
+        r=analizar_divergencia_temporadas(df_eq,equipo,num_partidos)
+        if r and r['alerta']:
+            alertas.append({'equipo':equipo,'pct_anterior':r['pct_anterior'],
+                            'n_actual':r['n_actual'],'n_anterior':r['n_anterior']})
     return alertas
 
 
 # ============================================================================
-# TRACKER DE APUESTAS — PERSISTENCIA EN DISCO
+# MÓDULO COMBINADA IA  (incluye córners)
 # ============================================================================
 
-APUESTAS_FILE = "apuestas.json"
-
-def _leer_apuestas_disco():
-    if not os.path.exists(APUESTAS_FILE):
-        return []
-    try:
-        with open(APUESTAS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return []
-
-def _guardar_apuestas_disco(apuestas):
-    try:
-        with open(APUESTAS_FILE, "w", encoding="utf-8") as f:
-            json.dump(apuestas, f, ensure_ascii=False, indent=2)
-        return True
-    except Exception:
-        return False
-
-def inicializar_tracker():
-    if 'tracker_apuestas' not in st.session_state:
-        st.session_state['tracker_apuestas'] = _leer_apuestas_disco()
-
-def agregar_apuesta(partido, mercado, prob_modelo, cuota, stake, resultado='pendiente'):
-    inicializar_tracker()
-    if resultado == 'ganada':
-        profit = round(stake * (cuota - 1), 2)
-    elif resultado == 'perdida':
-        profit = round(-stake, 2)
-    else:
-        profit = 0.0
-    apuesta = {
-        'id':          len(st.session_state['tracker_apuestas']) + 1,
-        'fecha':       datetime.now().strftime('%d/%m/%Y %H:%M'),
-        'partido':     partido,
-        'mercado':     mercado,
-        'prob_modelo': round(prob_modelo, 1),
-        'cuota':       round(cuota, 2),
-        'stake':       round(stake, 2),
-        'resultado':   resultado,
-        'profit':      profit,
-    }
-    st.session_state['tracker_apuestas'].append(apuesta)
-    _guardar_apuestas_disco(st.session_state['tracker_apuestas'])
-
-def calcular_estadisticas_tracker():
-    apuestas = st.session_state.get('tracker_apuestas', [])
-    if not apuestas:
-        return None
-    df       = pd.DataFrame(apuestas)
-    cerradas = df[df['resultado'].isin(['ganada', 'perdida'])]
-    total_apostado = df['stake'].sum()
-    total_cerrado  = cerradas['stake'].sum()
-    ganadas        = (cerradas['resultado'] == 'ganada').sum()
-    perdidas       = (cerradas['resultado'] == 'perdida').sum()
-    pendientes     = (df['resultado'] == 'pendiente').sum()
-    profit_total   = cerradas['profit'].sum()
-    roi            = (profit_total / total_cerrado * 100) if total_cerrado > 0 else 0.0
-    winrate        = (ganadas / len(cerradas) * 100) if len(cerradas) > 0 else 0.0
-    if len(cerradas) > 0:
-        prob_media_modelo = cerradas['prob_modelo'].mean()
-        calibracion_diff  = winrate - prob_media_modelo
-    else:
-        prob_media_modelo = 0.0
-        calibracion_diff  = 0.0
+def _prob_corners(corners_total):
+    """Probabilidades de córners usando Poisson con la media calculada."""
+    if corners_total <= 0:
+        return {}
     return {
-        'total_apuestas': len(df), 'ganadas': int(ganadas),
-        'perdidas': int(perdidas), 'pendientes': int(pendientes),
-        'total_apostado': round(total_apostado, 2), 'profit_total': round(profit_total, 2),
-        'roi': round(roi, 2), 'winrate': round(winrate, 1),
-        'prob_media_modelo': round(prob_media_modelo, 1),
-        'calibracion_diff': round(calibracion_diff, 1), 'df': df,
+        'Córners Over 7.5':  round((1-poisson.cdf(7,  corners_total))*100, 1),
+        'Córners Under 7.5': round(poisson.cdf(7,  corners_total)*100, 1),
+        'Córners Over 8.5':  round((1-poisson.cdf(8,  corners_total))*100, 1),
+        'Córners Under 8.5': round(poisson.cdf(8,  corners_total)*100, 1),
+        'Córners Over 9.5':  round((1-poisson.cdf(9,  corners_total))*100, 1),
+        'Córners Under 9.5': round(poisson.cdf(9,  corners_total)*100, 1),
+        'Córners Over 10.5': round((1-poisson.cdf(10, corners_total))*100, 1),
+        'Córners Under 10.5':round(poisson.cdf(10, corners_total)*100, 1),
     }
 
-def mostrar_tab_tracker():
-    inicializar_tracker()
-    st.subheader("📒 Tracker de Apuestas Personal")
-    st.markdown(
-        "Registra cada apuesta. Los datos se guardan en disco automáticamente y "
-        "estarán disponibles la próxima vez que abras la app. "
-        "**Las apuestas combinadas** pueden llevar stakes pequeños como 0.50€ o 1€."
-    )
-
-    with st.expander("➕ Registrar nueva apuesta", expanded=True):
-        fc1, fc2 = st.columns(2)
-        with fc1:
-            t_partido = st.text_input(
-                "Partido o descripción",
-                placeholder="Ej: Real Madrid vs Barça  |  Combinada jornada 30",
-                key="t_partido"
-            )
-            t_mercado = st.selectbox("Mercado", [
-                "Local gana (1)", "Empate (X)", "Visitante gana (2)",
-                "Over 1.5", "Under 1.5", "Over 2.5", "Under 2.5",
-                "Ambos Marcan - SI", "Ambos Marcan - NO",
-                "Combinada", "Otro"
-            ], key="t_mercado")
-        with fc2:
-            t_prob  = st.number_input(
-                "Probabilidad modelo (%)",
-                min_value=1.0, max_value=99.0, value=55.0, step=0.5, key="t_prob"
-            )
-            t_cuota = st.number_input(
-                "Cuota apostada",
-                min_value=1.01, max_value=10000.0,
-                value=2.0, step=0.01, format="%.2f", key="t_cuota",
-                help="Para combinadas puede ser muy alta (ej: 45.60)."
-            )
-            t_stake = st.number_input(
-                "Stake — dinero apostado (€)",
-                min_value=0.01, max_value=100000.0,
-                value=1.0, step=0.01, format="%.2f", key="t_stake",
-                help="Desde 0.01€. Para combinadas suele ser poco (ej: 0.50€ o 1€)."
-            )
-            t_result = st.selectbox("Resultado", ["pendiente", "ganada", "perdida"], key="t_result")
-
-        ev_preview    = (t_prob / 100 * t_cuota - 1) * 100
-        ganancia_neta = round(t_stake * (t_cuota - 1), 2)
-        cobro_total   = round(t_stake * t_cuota, 2)
-        ev_color      = "#2ecc71" if ev_preview > 0 else "#e74c3c"
-        borde_color   = "#2ecc71" if ev_preview > 0 else "#e74c3c"
-
-        st.markdown(
-            f"<div style='background:#0f0f1a;border-radius:8px;padding:10px 14px;"
-            f"border-left:4px solid {borde_color};margin-top:8px;'>"
-            f"<span style='color:{ev_color};font-weight:bold;'>EV: {ev_preview:+.1f}%</span>"
-            f" &nbsp;|&nbsp; Stake: <b>{t_stake:.2f}€</b>"
-            f" &nbsp;|&nbsp; <span style='color:#2ecc71;'>Ganancia si acierta: <b>+{ganancia_neta:.2f}€</b></span>"
-            f" &nbsp;|&nbsp; <span style='color:#4fc3f7;'>Cobro total: <b>{cobro_total:.2f}€</b></span>"
-            f"</div>",
-            unsafe_allow_html=True
-        )
-        st.write("")
-        if st.button("💾 Guardar apuesta", use_container_width=True, type="primary"):
-            if not t_partido.strip():
-                st.error("❌ El campo 'Partido o descripción' es obligatorio.")
-            else:
-                agregar_apuesta(t_partido.strip(), t_mercado, t_prob, t_cuota, t_stake, t_result)
-                st.success("✅ Apuesta guardada correctamente en disco.")
-                st.rerun()
-
-    stats = calcular_estadisticas_tracker()
-    if stats is None:
-        st.info("📭 Aún no tienes apuestas registradas.")
-        return
-
-    st.divider()
-    st.markdown("### 📊 Resumen")
-    s1,s2,s3,s4 = st.columns(4)
-    s1.metric("📋 Total",    stats['total_apuestas'])
-    s2.metric("✅ Ganadas",   stats['ganadas'])
-    s3.metric("❌ Perdidas",  stats['perdidas'])
-    s4.metric("⏳ Pendientes",stats['pendientes'])
-
-    s5,s6,s7,s8 = st.columns(4)
-    s5.metric("💶 Total apostado", f"{stats['total_apostado']:.2f}€")
-    s6.metric("💰 Profit total",   f"{stats['profit_total']:+.2f}€", delta=f"{stats['profit_total']:+.2f}€")
-    s7.metric("📈 ROI real",       f"{stats['roi']:+.2f}%",          delta=f"{stats['roi']:+.2f}%")
-    s8.metric("🎯 Winrate",        f"{stats['winrate']:.1f}%")
-
-    st.divider()
-    st.markdown("### 🔬 Calibración del modelo vs resultados reales")
-    if stats['ganadas'] + stats['perdidas'] < 5:
-        st.info("⚠️ Necesitas al menos 5 apuestas cerradas para evaluar la calibración.")
-    else:
-        diff = stats['calibracion_diff']
-        cc1,cc2,cc3 = st.columns(3)
-        cc1.metric("Prob. media modelo",   f"{stats['prob_media_modelo']:.1f}%")
-        cc2.metric("Tasa de acierto real", f"{stats['winrate']:.1f}%")
-        cc3.metric("Diferencia",           f"{diff:+.1f}%", delta=f"{diff:+.1f}%")
-        if abs(diff) <= 5:   st.success("✅ Modelo bien calibrado (diferencia ≤5%).")
-        elif diff > 5:       st.success(f"🟢 Modelo conservador: aciertas más de lo que predice (+{diff:.1f}%).")
-        else:                st.warning(f"🟡 Modelo sobreestima: aciertas menos de lo que predice ({diff:.1f}%).")
-
-    st.divider()
-    st.markdown("### 📋 Historial de apuestas")
-    filtro   = st.selectbox("Filtrar", ["Todas","ganada","perdida","pendiente"], key="tracker_filtro")
-    df_show  = stats['df'].copy()
-    if filtro != "Todas":
-        df_show = df_show[df_show['resultado'] == filtro]
-
-    if df_show.empty:
-        st.info("No hay apuestas con ese filtro.")
-    else:
-        df_show = df_show.iloc[::-1].reset_index(drop=True)
-
-        def color_resultado(val):
-            if val == 'ganada':  return 'background-color:#e8f5e9; color:#1b5e20'
-            if val == 'perdida': return 'background-color:#ffebee; color:#c62828'
-            return 'background-color:#fff8e1; color:#e65100'
-
-        df_disp = df_show[['fecha','partido','mercado','prob_modelo','cuota','stake','resultado','profit']].rename(columns={
-            'fecha':'Fecha','partido':'Partido','mercado':'Mercado',
-            'prob_modelo':'Prob.%','cuota':'Cuota','stake':'Stake €',
-            'resultado':'Resultado','profit':'Profit €'
-        })
-        st.dataframe(
-            df_disp.style.applymap(color_resultado, subset=['Resultado']),
-            use_container_width=True, height=min(450, 55+len(df_disp)*35)
-        )
-
-    pendientes_df = stats['df'][stats['df']['resultado'] == 'pendiente']
-    if not pendientes_df.empty:
-        st.divider()
-        st.markdown("### ✏️ Actualizar resultado de apuestas pendientes")
-        id_sel = st.selectbox(
-            "Selecciona apuesta",
-            pendientes_df['id'].tolist(),
-            format_func=lambda x: (
-                f"#{x} — {pendientes_df[pendientes_df['id']==x]['partido'].values[0]} | "
-                f"{pendientes_df[pendientes_df['id']==x]['mercado'].values[0]} | "
-                f"Stake: {pendientes_df[pendientes_df['id']==x]['stake'].values[0]:.2f}€ | "
-                f"Cuota: {pendientes_df[pendientes_df['id']==x]['cuota'].values[0]:.2f}"
-            ),
-            key="tracker_edit_sel"
-        )
-        nuevo_res = st.radio("Nuevo resultado", ["ganada","perdida"], horizontal=True, key="tracker_nuevo_res")
-        if st.button("✅ Actualizar resultado", use_container_width=True):
-            for ap in st.session_state['tracker_apuestas']:
-                if ap['id'] == id_sel:
-                    ap['resultado'] = nuevo_res
-                    ap['profit']    = (round(ap['stake']*(ap['cuota']-1),2)
-                                       if nuevo_res=='ganada' else round(-ap['stake'],2))
-                    break
-            ok = _guardar_apuestas_disco(st.session_state['tracker_apuestas'])
-            st.success(f"✅ Apuesta #{id_sel} actualizada{'y guardada.' if ok else ' (error al guardar en disco).'}")
-            st.rerun()
-
-    st.divider()
-    ex1,ex2,ex3 = st.columns(3)
-    with ex1:
-        st.download_button(
-            "📥 Exportar CSV", stats['df'].to_csv(index=False),
-            file_name=f"apuestas_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv", use_container_width=True
-        )
-    with ex2:
-        uploaded = st.file_uploader("📤 Importar CSV", type="csv", key="tracker_import",
-                                     label_visibility="collapsed")
-        if uploaded:
-            try:
-                df_imp = pd.read_csv(uploaded)
-                if all(c in df_imp.columns for c in ['partido','mercado','prob_modelo','cuota','stake','resultado']):
-                    nuevas = df_imp.to_dict('records')
-                    st.session_state['tracker_apuestas'] = nuevas
-                    _guardar_apuestas_disco(nuevas)
-                    st.success(f"✅ {len(df_imp)} apuestas importadas.")
-                    st.rerun()
-                else:
-                    st.error("❌ Formato de CSV incorrecto.")
-            except Exception as e:
-                st.error(f"❌ Error: {e}")
-    with ex3:
-        if st.button("🗑️ Borrar todas", use_container_width=True):
-            st.session_state['tracker_apuestas'] = []
-            _guardar_apuestas_disco([])
-            st.rerun()
-
-    st.caption(f"💾 Guardado automáticamente en **{APUESTAS_FILE}**")
-
-
-# ============================================================================
-# MÓDULO COMBINADA IA
-# ============================================================================
 
 def analizar_partido_para_combinada(df_total, local, visitante, num_partidos=20, factor_decay=0.003):
-    dl = df_total[(df_total['HomeTeam']==local)     | (df_total['AwayTeam']==local)]
-    dv = df_total[(df_total['HomeTeam']==visitante) | (df_total['AwayTeam']==visitante)]
-    if dl.empty or dv.empty:
-        return None
+    dl=df_total[(df_total['HomeTeam']==local)     | (df_total['AwayTeam']==local)]
+    dv=df_total[(df_total['HomeTeam']==visitante) | (df_total['AwayTeam']==visitante)]
+    if dl.empty or dv.empty: return None
     try:
-        p = PronosticadorDixonColes(df_total, dl, dv, local, visitante, num_partidos, factor_decay)
-        opciones = [
-            {'mercado': f'Local ({local})',         'prob': p.p_win,       'tipo':'1X2',   'cuota_est': max(1.3, 100/max(p.p_win,1))},
-            {'mercado': 'Empate',                   'prob': p.p_draw,      'tipo':'1X2',   'cuota_est': max(1.3, 100/max(p.p_draw,1))},
-            {'mercado': f'Visitante ({visitante})', 'prob': p.p_lose,      'tipo':'1X2',   'cuota_est': max(1.3, 100/max(p.p_lose,1))},
-            {'mercado': 'Over 1.5',  'prob': (1-poisson.cdf(1,p.media_total))*100, 'tipo':'Goles','cuota_est':1.55},
-            {'mercado': 'Under 1.5', 'prob': poisson.cdf(1,p.media_total)*100,      'tipo':'Goles','cuota_est':2.40},
-            {'mercado': 'Over 2.5',  'prob': p.prob_over_25,  'tipo':'Goles','cuota_est':2.0},
-            {'mercado': 'Under 2.5', 'prob': p.prob_under_25, 'tipo':'Goles','cuota_est':1.9},
-            {'mercado': 'Ambos Marcan - SI', 'prob': p.prob_ambos,       'tipo':'BTTS','cuota_est':1.95},
-            {'mercado': 'Ambos Marcan - NO', 'prob': 100-p.prob_ambos,   'tipo':'BTTS','cuota_est':1.85},
+        p=PronosticadorDixonColes(df_total,dl,dv,local,visitante,num_partidos,factor_decay)
+
+        # Opciones de goles y resultado
+        opciones=[
+            {'mercado':f'Local ({local})',        'prob':p.p_win,       'tipo':'1X2',   'cuota_est':max(1.3,100/max(p.p_win,1))},
+            {'mercado':'Empate',                   'prob':p.p_draw,      'tipo':'1X2',   'cuota_est':max(1.3,100/max(p.p_draw,1))},
+            {'mercado':f'Visitante ({visitante})', 'prob':p.p_lose,      'tipo':'1X2',   'cuota_est':max(1.3,100/max(p.p_lose,1))},
+            {'mercado':'1X',                       'prob':p.p_win+p.p_draw, 'tipo':'D.Oport.','cuota_est':max(1.1,100/max(p.p_win+p.p_draw,1))},
+            {'mercado':'X2',                       'prob':p.p_draw+p.p_lose,'tipo':'D.Oport.','cuota_est':max(1.1,100/max(p.p_draw+p.p_lose,1))},
+            {'mercado':'12',                       'prob':p.p_win+p.p_lose, 'tipo':'D.Oport.','cuota_est':max(1.1,100/max(p.p_win+p.p_lose,1))},
+            {'mercado':'Over 1.5',  'prob':(1-poisson.cdf(1,p.media_total))*100,'tipo':'Goles','cuota_est':1.55},
+            {'mercado':'Under 1.5', 'prob':poisson.cdf(1,p.media_total)*100,     'tipo':'Goles','cuota_est':2.40},
+            {'mercado':'Over 2.5',  'prob':p.prob_over_25,  'tipo':'Goles','cuota_est':2.0},
+            {'mercado':'Under 2.5', 'prob':p.prob_under_25, 'tipo':'Goles','cuota_est':1.9},
+            {'mercado':'Ambos Marcan - SI','prob':p.prob_ambos,      'tipo':'BTTS','cuota_est':1.95},
+            {'mercado':'Ambos Marcan - NO','prob':100-p.prob_ambos,  'tipo':'BTTS','cuota_est':1.85},
         ]
-        mejor = max(opciones, key=lambda x: x['prob'])
+
+        # Añadir córners si hay datos
+        if p.corners_total > 0:
+            probs_c=_prob_corners(p.corners_total)
+            # Seleccionamos la línea más cercana a la media para que sea la más relevante
+            lineas_over =['Córners Over 7.5','Córners Over 8.5','Córners Over 9.5','Córners Over 10.5']
+            lineas_under=['Córners Under 7.5','Córners Under 8.5','Córners Under 9.5','Córners Under 10.5']
+            for mercado_c in lineas_over+lineas_under:
+                prob_c=probs_c.get(mercado_c,0)
+                if prob_c>0:
+                    linea=float(mercado_c.split()[-1])
+                    # Cuota estimada basada en la probabilidad
+                    cuota_c=max(1.2, min(3.5, round(100/max(prob_c,1),2)))
+                    opciones.append({'mercado':mercado_c,'prob':prob_c,'tipo':'Córners','cuota_est':cuota_c})
+
+        mejor=max(opciones,key=lambda x:x['prob'])
         return {
-            'local': local, 'visitante': visitante,
-            'p_win': round(p.p_win,1), 'p_draw': round(p.p_draw,1), 'p_lose': round(p.p_lose,1),
-            'prob_over25': round(p.prob_over_25,1), 'prob_ambos': round(p.prob_ambos,1),
-            'media_local': round(p.media_local,2), 'media_visit': round(p.media_visitante,2),
-            'modo': p.modo_modelo, 'mejor_opcion': mejor,
-            'todas_opciones': sorted(opciones, key=lambda x: x['prob'], reverse=True),
+            'local':local,'visitante':visitante,
+            'p_win':round(p.p_win,1),'p_draw':round(p.p_draw,1),'p_lose':round(p.p_lose,1),
+            'prob_over25':round(p.prob_over_25,1),'prob_ambos':round(p.prob_ambos,1),
+            'corners_total':round(p.corners_total,1),
+            'media_local':round(p.media_local,2),'media_visit':round(p.media_visitante,2),
+            'modo':p.modo_modelo,'mejor_opcion':mejor,
+            'todas_opciones':sorted(opciones,key=lambda x:x['prob'],reverse=True),
         }
-    except Exception:
-        return None
+    except Exception: return None
+
 
 def calcular_mejor_combinada(partidos, min_p=2, max_p=4, prob_ind=0.52, prob_conj=0.12):
     if not partidos: return None
-    candidatos = []
+    candidatos=[]
     for p in partidos:
         for op in p['todas_opciones']:
-            if op['prob']/100 >= prob_ind:
+            if op['prob']/100>=prob_ind:
                 candidatos.append({
-                    'partido_label': f"{p['local']} vs {p['visitante']}",
-                    'local': p['local'], 'visitante': p['visitante'],
-                    'mercado': op['mercado'], 'prob': op['prob']/100,
-                    'cuota_est': op['cuota_est'], 'tipo': op['tipo'], 'modo': p['modo'],
+                    'partido_label':f"{p['local']} vs {p['visitante']}",
+                    'local':p['local'],'visitante':p['visitante'],
+                    'mercado':op['mercado'],'prob':op['prob']/100,
+                    'cuota_est':op['cuota_est'],'tipo':op['tipo'],'modo':p['modo'],
                 })
-    vistos, filtrados = set(), []
-    for c in sorted(candidatos, key=lambda x: x['prob'], reverse=True):
+    vistos,filtrados=set(),[]
+    for c in sorted(candidatos,key=lambda x:x['prob'],reverse=True):
         if c['partido_label'] not in vistos:
             filtrados.append(c); vistos.add(c['partido_label'])
-    if len(filtrados) < min_p: return None
-    mejor, mejor_ev = None, -999
-    for n in range(min_p, min(max_p+1, len(filtrados)+1)):
-        for combo in itertools.combinations(filtrados, n):
+    if len(filtrados)<min_p: return None
+    mejor,mejor_ev=None,-999
+    for n in range(min_p,min(max_p+1,len(filtrados)+1)):
+        for combo in itertools.combinations(filtrados,n):
             pc=1.0; qc=1.0
             for s in combo: pc*=s['prob']; qc*=s['cuota_est']
-            if pc < prob_conj: continue
-            ev = pc*qc-1
-            if ev > mejor_ev:
-                mejor_ev = ev
-                mejor = {'selecciones': list(combo), 'prob_conjunta': round(pc*100,2),
-                         'cuota_conjunta': round(qc,2), 'ev_pct': round(ev*100,2), 'n': n}
+            if pc<prob_conj: continue
+            ev=pc*qc-1
+            if ev>mejor_ev:
+                mejor_ev=ev
+                mejor={'selecciones':list(combo),'prob_conjunta':round(pc*100,2),
+                       'cuota_conjunta':round(qc,2),'ev_pct':round(ev*100,2),'n':n}
     return mejor
 
+
 def llamar_ia_combinada(partidos, mejor_combo, api_key=""):
-    rs = [f"- {p['local']} vs {p['visitante']}: L={p['p_win']}% E={p['p_draw']}% V={p['p_lose']}% O25={p['prob_over25']}% BTTS={p['prob_ambos']}%"
-          for p in partidos]
-    rc = [f"- {s['partido_label']}: {s['mercado']} ({s['prob']*100:.1f}%, ~{s['cuota_est']:.2f})"
-          for s in mejor_combo['selecciones']]
-    prompt = (f"Eres un analista experto en apuestas deportivas.\n\nPARTIDOS:\n{chr(10).join(rs)}\n\n"
-              f"COMBINADA ÓPTIMA ({mejor_combo['n']} sel., prob={mejor_combo['prob_conjunta']}%, "
-              f"cuota={mejor_combo['cuota_conjunta']}x, EV={mejor_combo['ev_pct']}%):\n{chr(10).join(rc)}\n\n"
-              f"Análisis experto breve (máx 200 palabras): justificación estadística, nivel de confianza, "
-              f"gestión de bankroll y valoración honesta. En español, sin markdown.")
+    rs=[f"- {p['local']} vs {p['visitante']}: L={p['p_win']}% E={p['p_draw']}% V={p['p_lose']}% "
+        f"O25={p['prob_over25']}% BTTS={p['prob_ambos']}% Corners={p['corners_total']}" for p in partidos]
+    rc=[f"- {s['partido_label']}: {s['mercado']} ({s['prob']*100:.1f}%, ~{s['cuota_est']:.2f}) [{s['tipo']}]"
+        for s in mejor_combo['selecciones']]
+    prompt=(f"Eres un analista experto en apuestas deportivas.\n\nPARTIDOS:\n{chr(10).join(rs)}\n\n"
+            f"COMBINADA ÓPTIMA ({mejor_combo['n']} sel., prob={mejor_combo['prob_conjunta']}%, "
+            f"cuota={mejor_combo['cuota_conjunta']}x, EV={mejor_combo['ev_pct']}%):\n{chr(10).join(rc)}\n\n"
+            f"Análisis experto breve (máx 200 palabras): justificación estadística, nivel de confianza, "
+            f"gestión de bankroll y valoración honesta. En español, sin markdown.")
     if api_key and api_key.strip():
         try:
-            r = requests.post(
-                "https://api.anthropic.com/v1/messages",
+            r=requests.post("https://api.anthropic.com/v1/messages",
                 headers={"Content-Type":"application/json","x-api-key":api_key,"anthropic-version":"2023-06-01"},
-                json={"model":"claude-sonnet-4-20250514","max_tokens":500,"messages":[{"role":"user","content":prompt}]},
-                timeout=30
-            )
-            if r.status_code == 200:
-                return r.json()['content'][0]['text'], True
-        except Exception:
-            pass
+                json={"model":"claude-sonnet-4-20250514","max_tokens":500,
+                      "messages":[{"role":"user","content":prompt}]},timeout=30)
+            if r.status_code==200: return r.json()['content'][0]['text'],True
+        except Exception: pass
     pc=mejor_combo['prob_conjunta']; ev=mejor_combo['ev_pct']; cuota=mejor_combo['cuota_conjunta']
     niv="bajo" if pc>=40 else "moderado" if pc>=22 else "elevado"
     bk=3 if pc>=40 else 2 if pc>=22 else 1
@@ -825,64 +519,76 @@ def llamar_ia_combinada(partidos, mejor_combo, api_key=""):
     for s in mejor_combo['selecciones']:
         pp=s['prob']*100
         cf="alta confianza" if pp>=65 else "confianza media" if pp>=55 else "confianza ajustada"
-        lns.append(f"- {s['mercado']} en {s['partido_label']}: {pp:.1f}% ({cf}).")
+        lns.append(f"- {s['mercado']} en {s['partido_label']}: {pp:.1f}% ({cf}) [{s['tipo']}].")
     lns+=["",f"EV positivo del {ev}%. Riesgo {niv}.",f"Bankroll recomendado: max {bk}%.",
           "","Advertencia: factores externos (lesiones, motivacion) no incluidos en el modelo."]
-    return "\n".join(lns), False
+    return "\n".join(lns),False
+
 
 def mostrar_tab_combinada(df_total, num_partidos, factor_decay, api_key_anthropic):
     st.subheader("🤖 Generador de Apuesta Combinada con IA")
-    st.markdown("Introduce entre **2 y 10 enfrentamientos**. La IA seleccionará la **combinada óptima** maximizando el valor esperado.")
-    equipos = sorted(set(df_total['HomeTeam'].unique())|set(df_total['AwayTeam'].unique()))
-    with st.expander("⚙️ Parámetros", expanded=False):
-        c1,c2,c3 = st.columns(3)
+    st.markdown("Introduce entre **2 y 10 enfrentamientos**. La IA seleccionará la **combinada óptima** "
+                "considerando resultado, goles y **córners**.")
+    equipos=sorted(set(df_total['HomeTeam'].unique())|set(df_total['AwayTeam'].unique()))
+
+    with st.expander("⚙️ Parámetros",expanded=False):
+        c1,c2,c3=st.columns(3)
         with c1:
-            min_sel = st.slider("Mín. selecciones",2,4,2)
-            max_sel = st.slider("Máx. selecciones",2,6,4)
+            min_sel=st.slider("Mín. selecciones",2,4,2)
+            max_sel=st.slider("Máx. selecciones",2,6,4)
         with c2:
-            prob_ind  = st.slider("Prob. mínima individual (%)",45,70,52)/100
-            prob_conj = st.slider("Prob. mínima conjunta (%)",5,35,12)/100
+            prob_ind =st.slider("Prob. mínima individual (%)",45,70,52)/100
+            prob_conj=st.slider("Prob. mínima conjunta (%)",5,35,12)/100
         with c3:
+            incluir_corners=st.checkbox("Incluir córners en la combinada", value=True,
+                help="Usa la distribución Poisson de córners para añadir mercados de córners")
             st.info("**Prob. individual**: descarta selecciones bajo este umbral.\n\n"
                     "**Prob. conjunta**: descarta combinadas con probabilidad total inferior.")
+
     st.markdown("### 📋 Partidos a analizar")
-    if 'num_combo' not in st.session_state: st.session_state.num_combo = 3
-    ca,cr,_ = st.columns([1,1,4])
+    if 'num_combo' not in st.session_state: st.session_state.num_combo=3
+    ca,cr,_=st.columns([1,1,4])
     with ca:
-        if st.button("➕ Añadir", use_container_width=True, key="c_add"):
-            if st.session_state.num_combo < 10: st.session_state.num_combo += 1
+        if st.button("➕ Añadir",use_container_width=True,key="c_add"):
+            if st.session_state.num_combo<10: st.session_state.num_combo+=1
     with cr:
-        if st.button("➖ Quitar", use_container_width=True, key="c_rem"):
-            if st.session_state.num_combo > 2: st.session_state.num_combo -= 1
-    seleccionados = []
+        if st.button("➖ Quitar",use_container_width=True,key="c_rem"):
+            if st.session_state.num_combo>2: st.session_state.num_combo-=1
+
+    seleccionados=[]
     for i in range(st.session_state.num_combo):
-        c1,c2,c3 = st.columns([1,3,3])
-        with c1: st.markdown(f"<br><b>#{i+1}</b>", unsafe_allow_html=True)
-        with c2: loc = st.selectbox(f"🏠 Local #{i+1}",    equipos, index=min(i*2,   len(equipos)-1), key=f"cl_{i}")
-        with c3: vis = st.selectbox(f"🚀 Visitante #{i+1}", equipos, index=min(i*2+1, len(equipos)-1), key=f"cv_{i}")
-        if loc != vis: seleccionados.append((loc,vis))
+        c1,c2,c3=st.columns([1,3,3])
+        with c1: st.markdown(f"<br><b>#{i+1}</b>",unsafe_allow_html=True)
+        with c2: loc=st.selectbox(f"🏠 Local #{i+1}",   equipos,index=min(i*2,  len(equipos)-1),key=f"cl_{i}")
+        with c3: vis=st.selectbox(f"🚀 Visitante #{i+1}",equipos,index=min(i*2+1,len(equipos)-1),key=f"cv_{i}")
+        if loc!=vis: seleccionados.append((loc,vis))
+
     st.divider()
-    if st.button("🚀 ANALIZAR Y GENERAR COMBINADA ÓPTIMA", use_container_width=True, type="primary"):
-        if len(seleccionados) < 2:
+    if st.button("🚀 ANALIZAR Y GENERAR COMBINADA ÓPTIMA",use_container_width=True,type="primary"):
+        if len(seleccionados)<2:
             st.error("❌ Necesitas al menos 2 partidos distintos."); return
-        unicos = list(dict.fromkeys(seleccionados))
-        with st.spinner("🔍 Analizando con Dixon-Coles..."):
+        unicos=list(dict.fromkeys(seleccionados))
+        with st.spinner("🔍 Analizando con Dixon-Coles + Córners..."):
             pb=st.progress(0); res=[]
             for i,(l,v) in enumerate(unicos):
                 pb.progress((i+1)/len(unicos))
                 r=analizar_partido_para_combinada(df_total,l,v,num_partidos,factor_decay)
-                if r: res.append(r)
+                if r:
+                    # Si el usuario no quiere córners, filtrar esas opciones
+                    if not incluir_corners:
+                        r['todas_opciones']=[op for op in r['todas_opciones'] if op['tipo']!='Córners']
+                    res.append(r)
                 else: st.warning(f"⚠️ Sin datos: {l} vs {v}")
             pb.empty()
-        if len(res) < 2:
+        if len(res)<2:
             st.error("❌ Datos insuficientes."); return
         with st.spinner("🧮 Calculando combinación óptima..."):
-            mc = calcular_mejor_combinada(res,min_sel,max_sel,prob_ind,prob_conj)
+            mc=calcular_mejor_combinada(res,min_sel,max_sel,prob_ind,prob_conj)
         if not mc:
             st.warning("⚠️ No se encontró combinada que cumpla los criterios. Reduce umbrales o añade más partidos.")
         else:
-            nivel   = "BAJO" if mc['prob_conjunta']>=40 else "MEDIO" if mc['prob_conjunta']>=22 else "ALTO"
-            emoji_r = "🟢" if nivel=="BAJO" else "🟡" if nivel=="MEDIO" else "🔴"
+            nivel  ="BAJO" if mc['prob_conjunta']>=40 else "MEDIO" if mc['prob_conjunta']>=22 else "ALTO"
+            emoji_r="🟢" if nivel=="BAJO" else "🟡" if nivel=="MEDIO" else "🔴"
             st.markdown("### 🏆 COMBINADA ÓPTIMA")
             st.markdown(f"""
             <div class="combo-winner">
@@ -893,92 +599,91 @@ def mostrar_tab_combinada(df_total, num_partidos, factor_decay, api_key_anthropi
                     <div class="combo-stat"><div style="font-size:28px;font-weight:900;color:{'#2ecc71' if mc['ev_pct']>0 else '#e74c3c'};">{'+' if mc['ev_pct']>0 else ''}{mc['ev_pct']}%</div><div style="font-size:11px;opacity:0.7;">Valor Esperado</div></div>
                     <div class="combo-stat"><div style="font-size:28px;">{emoji_r}</div><div style="font-size:11px;opacity:0.7;">Riesgo {nivel}</div></div>
                 </div>
-            """, unsafe_allow_html=True)
+            """,unsafe_allow_html=True)
             for s in mc['selecciones']:
                 pp=s['prob']*100
                 cp="#2ecc71" if pp>=65 else "#f1c40f" if pp>=52 else "#e74c3c"
+                tipo_icon="🎯" if s['tipo']=='Córners' else "⚽" if s['tipo']=='Goles' else "🔄" if 'Oport' in s['tipo'] else "📊"
                 st.markdown(f"""<div class="combo-partido">
                     <span style="font-size:13px;opacity:0.6;">{s['partido_label']}</span><br>
-                    <span style="font-size:17px;font-weight:700;">✅ {s['mercado']}</span>
+                    <span style="font-size:17px;font-weight:700;">{tipo_icon} {s['mercado']}</span>
                     <span style="margin-left:15px;color:{cp};font-weight:bold;">{pp:.1f}%</span>
                     <span style="margin-left:10px;opacity:0.6;font-size:13px;">~{s['cuota_est']:.2f}</span>
                     <span style="margin-left:10px;opacity:0.5;font-size:11px;">[{s['tipo']} · {s['modo']}]</span>
-                </div>""", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+                </div>""",unsafe_allow_html=True)
+            st.markdown("</div>",unsafe_allow_html=True)
             st.markdown("### 🤖 Análisis Experto IA")
-            lbl = "⚡ Claude AI" if (api_key_anthropic and api_key_anthropic.strip()) else "📊 Análisis local"
+            lbl="⚡ Claude AI" if (api_key_anthropic and api_key_anthropic.strip()) else "📊 Análisis local"
             with st.spinner(f"Generando análisis ({lbl})..."):
-                expl, es_claude = llamar_ia_combinada(res, mc, api_key_anthropic)
+                expl,es_claude=llamar_ia_combinada(res,mc,api_key_anthropic)
             st.markdown(f"""<div class="ia-explicacion">
                 <span class="ia-badge">{'🤖 Claude AI' if es_claude else '📊 Análisis estadístico'}</span>
                 <p style="margin:0;white-space:pre-line;">{expl}</p>
-            </div>""", unsafe_allow_html=True)
+            </div>""",unsafe_allow_html=True)
         st.divider()
         st.markdown("### 📊 Resumen de partidos analizados")
-        filas=[{'Partido':f"{p['local']} vs {p['visitante']}",'Local %':p['p_win'],'Empate %':p['p_draw'],
-                'Visit. %':p['p_lose'],'Over 2.5 %':p['prob_over25'],'BTTS %':p['prob_ambos'],
-                'Mejor':p['mejor_opcion']['mercado'],'Prob.':f"{p['mejor_opcion']['prob']:.1f}%",'Modelo':p['modo']} for p in res]
-        st.dataframe(pd.DataFrame(filas), use_container_width=True)
-        st.download_button("📥 Exportar CSV", pd.DataFrame(filas).to_csv(index=False),
-                           file_name=f"combinada_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
+        filas=[{'Partido':f"{p['local']} vs {p['visitante']}",
+                'Local %':p['p_win'],'Empate %':p['p_draw'],'Visit. %':p['p_lose'],
+                'Over 2.5 %':p['prob_over25'],'BTTS %':p['prob_ambos'],
+                'Córners (media)':p['corners_total'],
+                'Mejor':p['mejor_opcion']['mercado'],
+                'Prob.':f"{p['mejor_opcion']['prob']:.1f}%",'Modelo':p['modo']} for p in res]
+        st.dataframe(pd.DataFrame(filas),use_container_width=True)
+        st.download_button("📥 Exportar CSV",pd.DataFrame(filas).to_csv(index=False),
+                           file_name=f"combinada_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",mime="text/csv")
 
 
 # ============================================================================
-# MÓDULO QUINIELA — SELAE
+# MÓDULO QUINIELA
 # ============================================================================
 
 SELAE_EQUIPOS_MAP = {
     'real madrid':'Real Madrid','barcelona':'Barcelona','fc barcelona':'Barcelona',
     'atletico':'Ath Madrid','atletico de madrid':'Ath Madrid','atletico madrid':'Ath Madrid',
-    'club atletico de madrid':'Ath Madrid','athletic':'Ath Bilbao','athletic club':'Ath Bilbao',
-    'valencia':'Valencia','valencia cf':'Valencia','sevilla':'Sevilla','sevilla fc':'Sevilla',
-    'betis':'Betis','real betis':'Betis','villarreal':'Villarreal','villarreal cf':'Villarreal',
+    'athletic':'Ath Bilbao','athletic club':'Ath Bilbao','valencia':'Valencia',
+    'sevilla':'Sevilla','betis':'Betis','real betis':'Betis','villarreal':'Villarreal',
     'celta':'Celta','celta de vigo':'Celta','rayo':'Rayo Vallecano','rayo vallecano':'Rayo Vallecano',
-    'getafe':'Getafe','osasuna':'Osasuna','real osasuna':'Osasuna',
-    'sociedad':'Sociedad','real sociedad':'Sociedad','girona':'Girona','girona fc':'Girona',
-    'mallorca':'Mallorca','real mallorca':'Mallorca','alaves':'Alaves','deportivo alaves':'Alaves',
-    'espanyol':'Espanol','rcd espanyol':'Espanol','las palmas':'Las Palmas','ud las palmas':'Las Palmas',
-    'valladolid':'Valladolid','real valladolid':'Valladolid','leganes':'Leganes','cd leganes':'Leganes',
-    'zaragoza':'Zaragoza','real zaragoza':'Zaragoza','sporting':'Sp Gijon','sporting gijon':'Sp Gijon',
-    'oviedo':'Oviedo','real oviedo':'Oviedo','huesca':'Huesca','levante':'Levante',
-    'elche':'Elche','granada':'Granada','tenerife':'Tenerife','albacete':'Albacete',
-    'almeria':'Almeria','ud almeria':'Almeria','eibar':'Eibar','burgos':'Burgos',
-    'cordoba':'Cordoba','racing':'Racing Santander','racing de santander':'Racing Santander',
-    'mirandes':'Mirandes','castellon':'Castellon','ferrol':'Racing Ferrol',
-    'cartagena':'Cartagena','eldense':'Eldense',
+    'getafe':'Getafe','osasuna':'Osasuna','sociedad':'Sociedad','real sociedad':'Sociedad',
+    'girona':'Girona','mallorca':'Mallorca','real mallorca':'Mallorca','alaves':'Alaves',
+    'espanyol':'Espanol','las palmas':'Las Palmas','valladolid':'Valladolid','leganes':'Leganes',
+    'zaragoza':'Zaragoza','sporting':'Sp Gijon','oviedo':'Oviedo','real oviedo':'Oviedo',
+    'huesca':'Huesca','levante':'Levante','elche':'Elche','granada':'Granada',
+    'tenerife':'Tenerife','albacete':'Albacete','almeria':'Almeria','eibar':'Eibar',
+    'burgos':'Burgos','cordoba':'Cordoba','racing':'Racing Santander','mirandes':'Mirandes',
+    'castellon':'Castellon','ferrol':'Racing Ferrol','cartagena':'Cartagena','eldense':'Eldense',
 }
 
 def _normalizar(txt):
-    trans = str.maketrans('áéíóúàèìòùäëïöüâêîôûñ','aeiouaeiouaeiouaeioun')
+    trans=str.maketrans('áéíóúàèìòùäëïöüâêîôûñ','aeiouaeiouaeiouaeioun')
     return txt.lower().strip().translate(trans)
 
 def _fuzzy_match_equipo(nombre_raw, equipos_bd, cutoff=0.55):
-    nombre_n = _normalizar(nombre_raw)
+    nombre_n=_normalizar(nombre_raw)
     if nombre_n in SELAE_EQUIPOS_MAP:
-        mapped = SELAE_EQUIPOS_MAP[nombre_n]
+        mapped=SELAE_EQUIPOS_MAP[nombre_n]
         if mapped in equipos_bd: return mapped,'exact'
     for key,val in SELAE_EQUIPOS_MAP.items():
         if key in nombre_n or nombre_n in key:
             if val in equipos_bd: return val,'partial'
-    m = get_close_matches(nombre_raw, equipos_bd, n=1, cutoff=cutoff)
+    m=get_close_matches(nombre_raw,equipos_bd,n=1,cutoff=cutoff)
     if m: return m[0],'fuzzy'
-    equipo_lower = {_normalizar(e):e for e in equipos_bd}
-    ml = get_close_matches(nombre_n, list(equipo_lower.keys()), n=1, cutoff=cutoff)
-    if ml: return equipo_lower[ml[0]],'fuzzy-low'
+    el={_normalizar(e):e for e in equipos_bd}
+    ml=get_close_matches(nombre_n,list(el.keys()),n=1,cutoff=cutoff)
+    if ml: return el[ml[0]],'fuzzy-low'
     return None,'not_found'
 
 def _extraer_partidos_json_selae(data):
-    pares = []
-    nodes = [data] if isinstance(data,dict) else (data if isinstance(data,list) else [])
+    pares=[]
+    nodes=[data] if isinstance(data,dict) else (data if isinstance(data,list) else [])
     for node in nodes:
         if not isinstance(node,dict): continue
         for key in ['partidos','matches','encuentros','jornada','eventos','results','data']:
-            sub = node.get(key,[])
+            sub=node.get(key,[])
             if isinstance(sub,list):
                 for item in sub:
                     if isinstance(item,dict):
-                        loc=(item.get('local') or item.get('equipoLocal') or item.get('home') or item.get('homeTeam') or item.get('home_team') or '')
-                        vis=(item.get('visitante') or item.get('equipoVisitante') or item.get('away') or item.get('awayTeam') or item.get('away_team') or '')
+                        loc=(item.get('local') or item.get('equipoLocal') or item.get('home') or item.get('homeTeam') or '')
+                        vis=(item.get('visitante') or item.get('equipoVisitante') or item.get('away') or item.get('awayTeam') or '')
                         if loc and vis: pares.append((loc.strip(),vis.strip()))
     return pares if len(pares)>=5 else None
 
@@ -1011,13 +716,13 @@ def obtener_jornada_quiniela_oficial(equipos_bd):
     for par in pares_raw:
         if not (isinstance(par,(list,tuple)) and len(par)==2): continue
         loc_raw,vis_raw=str(par[0]).strip(),str(par[1]).strip()
-        loc_bd,conf_l=_fuzzy_match_equipo(loc_raw,equipos_bd)
-        vis_bd,conf_v=_fuzzy_match_equipo(vis_raw,equipos_bd)
+        loc_bd,cl=_fuzzy_match_equipo(loc_raw,equipos_bd)
+        vis_bd,cv=_fuzzy_match_equipo(vis_raw,equipos_bd)
         resultado.append({'local_raw':loc_raw,'visit_raw':vis_raw,'local_bd':loc_bd,'visit_bd':vis_bd,
-                          'mapeado':loc_bd is not None and vis_bd is not None,'confianza':f"{conf_l}/{conf_v}"})
+                          'mapeado':loc_bd is not None and vis_bd is not None,'confianza':f"{cl}/{cv}"})
         if loc_bd is None: no_encontrados.append(loc_raw)
         if vis_bd is None: no_encontrados.append(vis_raw)
-    return resultado, no_encontrados
+    return resultado,no_encontrados
 
 def analizar_partido_quiniela(df_total, local, visitante, num_partidos=20, factor_decay=0.003):
     dl=df_total[(df_total['HomeTeam']==local)     | (df_total['AwayTeam']==local)]
@@ -1070,10 +775,10 @@ def calcular_quiniela(resultados, n_dobles, n_triples):
 
 def mostrar_tab_quiniela(df_total, num_partidos, factor_decay):
     st.subheader("🎯 Generador de Quiniela Automático")
-    st.markdown("Selecciona hasta **15 partidos**, configura dobles y triples. El **partido #15** muestra el **marcador exacto más probable**.")
+    st.markdown("Selecciona hasta **15 partidos**. El **partido #15** muestra el **marcador exacto más probable**.")
     equipos=sorted(set(df_total['HomeTeam'].unique())|set(df_total['AwayTeam'].unique()))
 
-    with st.expander("🌐 Cargar jornada oficial de La Quiniela (SELAE)", expanded=False):
+    with st.expander("🌐 Cargar jornada oficial SELAE",expanded=False):
         col_btn,col_info=st.columns([2,4])
         with col_btn:
             cargar_btn=st.button("🔄 Cargar jornada SELAE",use_container_width=True,key="selae_load")
@@ -1085,13 +790,11 @@ def mostrar_tab_quiniela(df_total, num_partidos, factor_decay):
             if resultado_selae is None:
                 st.error("❌ No se pudo obtener la jornada. Selecciona manualmente.")
             else:
-                partidos_mapeados,_=resultado_selae
-                ok=[p for p in partidos_mapeados if p['mapeado']]
-                mal=[p for p in partidos_mapeados if not p['mapeado']]
-                st.success(f"✅ {len(partidos_mapeados)} partidos — mapeados: {len(ok)}/{len(partidos_mapeados)}")
+                pm,_=resultado_selae
+                ok=[p for p in pm if p['mapeado']]; mal=[p for p in pm if not p['mapeado']]
+                st.success(f"✅ {len(pm)} partidos — mapeados: {len(ok)}/{len(pm)}")
                 if mal: st.warning("⚠️ No encontrados: "+", ".join(f"{p['local_raw']} vs {p['visit_raw']}" for p in mal))
-                st.session_state['selae_partidos']=partidos_mapeados
-                st.info("✏️ Partidos pre-cargados en los selectores de abajo.")
+                st.session_state['selae_partidos']=pm
         if 'selae_partidos' in st.session_state:
             df_map=pd.DataFrame([{'SELAE Local':p['local_raw'],'BD Local':p['local_bd'] or '❌',
                                    'SELAE Visitante':p['visit_raw'],'BD Visitante':p['visit_bd'] or '❌',
@@ -1106,20 +809,24 @@ def mostrar_tab_quiniela(df_total, num_partidos, factor_decay):
     cols_pre1=st.columns(len(PRESETS))
     for col,(label,d,t) in zip(cols_pre1,PRESETS):
         coste_norm=0.75*(2**d)*(3**t)
-        if col.button(f"{label}\n({coste_norm:.2f}€)",use_container_width=True,key=f"preset_norm_{label.replace(' ','_').replace('+','p')}"):
-            st.session_state['qd']=d; st.session_state['qt']=t; st.session_state['quiniela_tipo']='normal'; st.rerun()
+        if col.button(f"{label}\n({coste_norm:.2f}€)",use_container_width=True,
+                      key=f"preset_norm_{label.replace(' ','_').replace('+','p')}"):
+            st.session_state['qd']=d; st.session_state['qt']=t
+            st.session_state['quiniela_tipo']='normal'; st.rerun()
     cols_pre2=st.columns(len(PRESETS))
     for col,(label,d,t) in zip(cols_pre2,PRESETS):
         red_cost=costes_reducidos.get((d,t)); coste_txt=f"{red_cost:.2f}€" if red_cost else "—"
-        if col.button(f"{label}\n({coste_txt})",use_container_width=True,key=f"preset_red_{label.replace(' ','_').replace('+','p')}"):
-            st.session_state['qd']=d; st.session_state['qt']=t; st.session_state['quiniela_tipo']='reducida'; st.rerun()
+        if col.button(f"{label}\n({coste_txt})",use_container_width=True,
+                      key=f"preset_red_{label.replace(' ','_').replace('+','p')}"):
+            st.session_state['qd']=d; st.session_state['qt']=t
+            st.session_state['quiniela_tipo']='reducida'; st.rerun()
 
     st.markdown("### ⚙️ Configuración")
     c1,c2,c3=st.columns(3)
     with c1: n_partidos_q=st.slider("Número de partidos",5,15,15)
     with c2:
-        n_dobles=st.slider("Dobles  (×2 coste)",0,12,4,on_change=reset_quiniela_tipo)
-        n_triples=st.slider("Triples (×3 coste)",0,8,0,on_change=reset_quiniela_tipo)
+        n_dobles =st.slider("Dobles  (×2 coste)",0,12,4,on_change=reset_quiniela_tipo)
+        n_triples=st.slider("Triples (×3 coste)",0, 8,0,on_change=reset_quiniela_tipo)
     with c3:
         nt_v=min(n_triples,n_partidos_q); nd_v=min(n_dobles,max(0,n_partidos_q-nt_v))
         coste_normal=0.75*(2**nd_v)*(3**nt_v)
@@ -1143,8 +850,8 @@ def mostrar_tab_quiniela(df_total, num_partidos, factor_decay):
         with cn: st.markdown(f"<br><b style='color:{num_color};font-size:16px;'>{i+1}{extra_label}</b>",unsafe_allow_html=True)
         idx_l=(equipos.index(pre_local) if pre_local and pre_local in equipos else min(i*2,len(equipos)-1))
         idx_v=(equipos.index(pre_visit) if pre_visit and pre_visit in equipos else min(i*2+1,len(equipos)-1))
-        with cl: lq=st.selectbox(f"Local #{i+1}",    equipos,index=idx_l,key=f"ql_{i}")
-        with cv: vq=st.selectbox(f"Visitante #{i+1}", equipos,index=idx_v,key=f"qv_{i}")
+        with cl: lq=st.selectbox(f"Local #{i+1}",   equipos,index=idx_l,key=f"ql_{i}")
+        with cv: vq=st.selectbox(f"Visitante #{i+1}",equipos,index=idx_v,key=f"qv_{i}")
         if lq!=vq: partidos_q.append((lq,vq))
     st.caption("⭐ El partido #15 muestra el marcador exacto más probable.")
     st.divider()
@@ -1162,8 +869,8 @@ def mostrar_tab_quiniela(df_total, num_partidos, factor_decay):
             pb.empty()
         rq=calcular_quiniela(res_q,n_dobles,n_triples)
         if st.session_state.get('quiniela_tipo')=='reducida':
-            combo=(nd_v,nt_v); red_cost=costes_reducidos.get(combo)
-            if red_cost is not None: rq['coste_total']=red_cost; rq['coste_multiplicador']=round(red_cost/0.75)
+            combo=(nd_v,nt_v); rc=costes_reducidos.get(combo)
+            if rc is not None: rq['coste_total']=rc; rq['coste_multiplicador']=round(rc/0.75)
         st.session_state['ultima_quiniela']=rq
         st.session_state.pop('qd',None); st.session_state.pop('qt',None)
         if 'quiniela_tipo' in st.session_state: del st.session_state['quiniela_tipo']
@@ -1188,9 +895,9 @@ def mostrar_tab_quiniela(df_total, num_partidos, factor_decay):
         c2_="#2ecc71" if s['p2']==mp else "#888"
         num_color="#f1c40f" if s['num']==15 else "#e94560"
         if s['num']==15:
-            marc=s.get('marcador_sugerido','?-?'); prob_marc=s.get('prob_marcador',0.0)
+            marc=s.get('marcador_sugerido','?-?'); pm_=s.get('prob_marcador',0.0)
             extra_td=("<td style='color:#f1c40f;font-size:13px;font-weight:bold;'>⭐ "+marc+
-                      " <span style='font-size:11px;opacity:0.7;'>("+str(prob_marc)+"%)</span></td>")
+                      " <span style='font-size:11px;opacity:0.7;'>("+str(pm_)+"%)</span></td>")
         else: extra_td="<td></td>"
         fh+=("<tr><td><b style='color:"+num_color+";'>"+str(s['num'])+"</b></td>"
              "<td style='font-size:13px;'>"+s['local'][:14]+" vs "+s['visitante'][:14]+"</td>"
@@ -1221,7 +928,6 @@ def mostrar_tab_quiniela(df_total, num_partidos, factor_decay):
         top6=sorted(rq['quiniela'],key=lambda x:max(x['p1'],x['pX'],x['p2']),reverse=True)[:6]
         reducida=" · ".join(f"**#{s['num']}** {s['signo']}" for s in sorted(top6,key=lambda x:x['num']))
         st.markdown(f"*Reducida sugerida (0.75€)*: {reducida}")
-        if rq['coste_total']>100: st.warning("⚠️ Coste muy elevado. Considera reducir dobles/triples.")
     with cr2:
         st.markdown("#### 💡 Interpretación")
         if rq['prob_total']>1:    st.success(f"✅ Prob. relativamente alta: {rq['prob_total']}%")
@@ -1237,7 +943,6 @@ def mostrar_tab_quiniela(df_total, num_partidos, factor_decay):
                                'Seleccion':s['signo'],'Tipo':s['tipo'],
                                'Prob_acierto_%':s['prob_aciertopartido'],
                                'Marcador_exacto':s.get('marcador_sugerido','') if s['num']==15 else '',
-                               'Prob_marcador_%':s.get('prob_marcador','') if s['num']==15 else '',
                                'Modelo':s['modo']} for s in rq['quiniela']])
         st.download_button("📥 Exportar quiniela CSV",df_exp.to_csv(index=False),
                            file_name=f"quiniela_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
@@ -1416,17 +1121,31 @@ def obtener_historial_h2h(df, local, visitante, limite=8):
 # ============================================================================
 
 def calcular_probabilidades_todos_mercados(p):
-    return {'1x2':{'local':p.p_win,'empate':p.p_draw,'visitante':p.p_lose},
-            'over_under':{'Over 0.5':(1-poisson.pmf(0,p.media_total))*100,'Under 0.5':poisson.pmf(0,p.media_total)*100,
-                          'Over 1.5':(1-poisson.cdf(1,p.media_total))*100,'Under 1.5':poisson.cdf(1,p.media_total)*100,
-                          'Over 2.5':p.prob_over_25,'Under 2.5':p.prob_under_25,
-                          'Over 3.5':(1-poisson.cdf(3,p.media_total))*100,'Under 3.5':poisson.cdf(3,p.media_total)*100},
-            'ambos_marcan':{'Si':p.prob_ambos,'No':100-p.prob_ambos}}
+    return {
+        '1x2':{'local':p.p_win,'empate':p.p_draw,'visitante':p.p_lose},
+        'doble_oportunidad':{
+            '1X': round(p.p_win+p.p_draw,1),
+            'X2': round(p.p_draw+p.p_lose,1),
+            '12': round(p.p_win+p.p_lose,1),
+        },
+        'over_under':{
+            'Over 0.5': round((1-poisson.pmf(0,p.media_total))*100,1),
+            'Under 0.5':round(poisson.pmf(0,p.media_total)*100,1),
+            'Over 1.5': round((1-poisson.cdf(1,p.media_total))*100,1),
+            'Under 1.5':round(poisson.cdf(1,p.media_total)*100,1),
+            'Over 2.5': round(p.prob_over_25,1),
+            'Under 2.5':round(p.prob_under_25,1),
+            'Over 3.5': round((1-poisson.cdf(3,p.media_total))*100,1),
+            'Under 3.5':round(poisson.cdf(3,p.media_total)*100,1),
+        },
+        'ambos_marcan':{'Si':p.prob_ambos,'No':100-p.prob_ambos},
+    }
 
 def encontrar_mejores_cuotas(df_p):
     if df_p.empty: return None
     row=df_p.iloc[0]
-    mp={'local':['B365H','PSH','WHH','VCH','MaxH'],'empate':['B365D','PSD','WHD','VCD','MaxD'],'visitante':['B365A','PSA','WHA','VCA','MaxA']}
+    mp={'local':['B365H','PSH','WHH','VCH','MaxH'],'empate':['B365D','PSD','WHD','VCD','MaxD'],
+        'visitante':['B365A','PSA','WHA','VCA','MaxA']}
     cuotas={}
     for m,cols in mp.items():
         bq,bc=0,None
@@ -1442,9 +1161,9 @@ def calcular_valor_esperado(prob, cuota):
 
 def recomendar_apuesta_segura(p, cuotas):
     items=[(f'Local: {p.local}',p.p_win,'local',2.0),('Empate',p.p_draw,'empate',3.2),
-           (f'Visitante: {p.visitante}',p.p_lose,'visitante',3.0),('Over 2.5',p.prob_over_25,None,2.0),
-           ('Under 2.5',p.prob_under_25,None,1.9),('Ambos marcan - SI',p.prob_ambos,None,1.95),
-           ('Ambos marcan - NO',100-p.prob_ambos,None,1.85)]
+           (f'Visitante: {p.visitante}',p.p_lose,'visitante',3.0),
+           ('Over 2.5',p.prob_over_25,None,2.0),('Under 2.5',p.prob_under_25,None,1.9),
+           ('Ambos marcan - SI',p.prob_ambos,None,1.95),('Ambos marcan - NO',100-p.prob_ambos,None,1.85)]
     res=[]
     for nombre,prob,clave,cd in items:
         cuota=(cuotas.get(clave,{}).get('cuota',cd) if (cuotas and clave) else cd)
@@ -1487,9 +1206,9 @@ def check_alertas(p, cuotas, va, bt=None):
         al.append({'tipo':"🔴 VALUE BET FUERTE" if v['value']>10 else "💰 VALUE BET DETECTADO",
                    'mensaje':f"{v['mercado']} +{v['value']:.1f}% ({t})",'clase':'alerta-verde'})
     mp=max(p.p_win,p.p_draw,p.p_lose)
-    if mp>70:            al.append({'tipo':'🎯 FAVORITO CLARO','mensaje':f"{mp:.1f}%",'clase':'alerta-amarilla'})
-    if p.prob_over_25>75:al.append({'tipo':'⚽ MUCHOS GOLES','mensaje':f"Over 2.5 al {p.prob_over_25:.1f}%",'clase':'alerta-amarilla'})
-    if p.prob_ambos>75:  al.append({'tipo':'🥅 AMBOS MARCAN','mensaje':f"{p.prob_ambos:.1f}%",'clase':'alerta-amarilla'})
+    if mp>70:             al.append({'tipo':'🎯 FAVORITO CLARO','mensaje':f"{mp:.1f}%",'clase':'alerta-amarilla'})
+    if p.prob_over_25>75: al.append({'tipo':'⚽ MUCHOS GOLES','mensaje':f"Over 2.5 al {p.prob_over_25:.1f}%",'clase':'alerta-amarilla'})
+    if p.prob_ambos>75:   al.append({'tipo':'🥅 AMBOS MARCAN','mensaje':f"{p.prob_ambos:.1f}%",'clase':'alerta-amarilla'})
     if bt and bt.get('accuracy_seguro',0)>60:
         al.append({'tipo':'✅ MODELO VALIDADO','mensaje':f"Accuracy: {bt['accuracy_seguro']:.1f}%",'clase':'alerta-verde'})
     return al
@@ -1527,24 +1246,22 @@ def calcular_prob_mitades(df, equipo):
 # ============================================================================
 
 def main():
-    # ── Control de acceso — lo primero de todo ──────────────────────────
     if not verificar_acceso():
         return
 
     if 'favoritos' not in st.session_state:
-        st.session_state.favoritos = []
-    inicializar_tracker()
+        st.session_state.favoritos=[]
 
     st.title("⚽ ASISTENTE DE APUESTAS JR6 - FÚTBOL PROFESIONAL")
-    st.caption("Dixon-Coles · Pesos Temporales · Value Bets · Combinada IA · Quiniela · Backtesting · Tracker")
+    st.caption("Dixon-Coles · Pesos Temporales · Value Bets · Combinada IA · Quiniela · Backtesting")
 
-    df_total = cargar_datos()
+    df_total=cargar_datos()
 
     if df_total.empty:
         st.warning("⚠️ No hay datos. Pulsa 'Actualizar Base de Datos' en la barra lateral.")
         with st.sidebar:
             mostrar_info_sesion_sidebar()
-            if st.button("🔄 Actualizar Base de Datos", use_container_width=True):
+            if st.button("🔄 Actualizar Base de Datos",use_container_width=True):
                 with st.spinner("Actualizando..."):
                     pb=st.progress(0); st_=st.empty()
                     ok,num,_=actualizar_csv(pb,st_)
@@ -1552,21 +1269,19 @@ def main():
                         st.success(f"✅ {num} registros"); st.cache_data.clear(); time.sleep(1); st.rerun()
         return
 
-    equipos = sorted(set(df_total['HomeTeam'].unique())|set(df_total['AwayTeam'].unique()))
+    equipos=sorted(set(df_total['HomeTeam'].unique())|set(df_total['AwayTeam'].unique()))
 
     # ── SIDEBAR ──────────────────────────────────────────────────────────
     with st.sidebar:
         mostrar_info_sesion_sidebar()
         st.header("⚙️ CONFIGURACIÓN")
-        num_partidos = st.slider("📊 Partidos a analizar", 5, 50, 10, 5)
-        factor_decay = st.slider("⏳ Decaimiento temporal", 0.001, 0.010, 0.003, 0.001,
-                                  help="Mayor = más peso a partidos recientes")
+        num_partidos=st.slider("📊 Partidos a analizar",5,50,10,5)
+        factor_decay=st.slider("⏳ Decaimiento temporal",0.001,0.010,0.003,0.001,
+                                help="Mayor = más peso a partidos recientes")
         st.divider()
         st.subheader("🔑 APIs")
-        api_key_odds      = st.text_input("The Odds API Key",  value="", type="password",
-                                           help="theoddsapi.com (500 req/mes gratis)")
-        api_key_anthropic = st.text_input("Anthropic API Key", value="", type="password",
-                                           help="Para análisis IA en combinadas")
+        api_key_odds     =st.text_input("The Odds API Key", value="",type="password",help="theoddsapi.com (500 req/mes gratis)")
+        api_key_anthropic=st.text_input("Anthropic API Key",value="",type="password",help="Para análisis IA en combinadas")
         if api_key_odds:      st.success("⚡ Odds API configurada")
         if api_key_anthropic: st.success("🤖 Claude API configurada")
         st.divider()
@@ -1596,15 +1311,13 @@ def main():
         st.caption(f"📱 {'Móvil' if ES_MOVIL else 'Escritorio'} · {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
     # ── TABS ──────────────────────────────────────────────────────────────
-    tab_p,tab_c,tab_q,tab_b,tab_t = st.tabs([
-        "⚽ Pronóstico Individual","🤖 Combinada IA","🎯 Quiniela",
-        "🔬 Backtesting & Validación","📒 Mis Apuestas",
+    tab_p,tab_c,tab_q,tab_b=st.tabs([
+        "⚽ Pronóstico Individual","🤖 Combinada IA","🎯 Quiniela","🔬 Backtesting & Validación",
     ])
 
     with tab_b: backtest_res=mostrar_tab_backtesting(df_total)
     with tab_c: mostrar_tab_combinada(df_total,num_partidos,factor_decay,api_key_anthropic)
     with tab_q: mostrar_tab_quiniela(df_total,num_partidos,factor_decay)
-    with tab_t: mostrar_tab_tracker()
 
     # ── PRONÓSTICO INDIVIDUAL ─────────────────────────────────────────────
     with tab_p:
@@ -1629,8 +1342,7 @@ def main():
                 f"<div class='alerta-card alerta-azul'>"
                 f"<span style='font-size:18px;'>⚠️ ALERTA TEMPORADA — {ad['equipo']}</span><br>"
                 f"El <b>{ad['pct_anterior']:.0f}%</b> de los datos son de la temporada anterior "
-                f"({ad['n_anterior']} partidos 24/25 vs {ad['n_actual']} partidos 25/26). "
-                f"Si el equipo cambió significativamente, el modelo puede ser menos preciso.</div>",
+                f"({ad['n_anterior']} partidos 24/25 vs {ad['n_actual']} partidos 25/26).</div>",
                 unsafe_allow_html=True
             )
 
@@ -1723,19 +1435,6 @@ def main():
                             f"Cuota: {va['mejor_value']['cuota']:.2f} | Ventaja: +{v:.1f}%</div>",unsafe_allow_html=True)
 
         st.divider(); st.subheader("🎯 TOP 5 APUESTAS SUGERIDAS")
-        with st.expander("➕ Registrar apuesta rápida en el Tracker", expanded=False):
-            rq_c1,rq_c2,rq_c3=st.columns(3)
-            with rq_c1: ap_merc=st.selectbox("Mercado",[a['nombre'] for a in aps[:5]],key="rq_mercado")
-            with rq_c2:
-                ap_cuota=st.number_input("Cuota real",1.01,10000.0,2.0,0.01,format="%.2f",key="rq_cuota")
-                ap_stake=st.number_input("Stake (€)",0.01,100000.0,1.0,0.01,format="%.2f",key="rq_stake")
-            with rq_c3: ap_res=st.selectbox("Resultado",["pendiente","ganada","perdida"],key="rq_res")
-            if st.button("💾 Añadir al Tracker",use_container_width=True,key="rq_save"):
-                ap_sel=next((a for a in aps if a['nombre']==ap_merc),None)
-                prob_sel=ap_sel['probabilidad'] if ap_sel else 50.0
-                agregar_apuesta(f"{local} vs {visitante}",ap_merc,prob_sel,ap_cuota,ap_stake,ap_res)
-                st.success("✅ Apuesta añadida al Tracker.")
-
         for i,ap in enumerate(aps[:5]):
             cc="#2ecc71" if ap['seguridad']=='ALTA' else "#f1c40f" if ap['seguridad']=='MEDIA' else "#e74c3c"
             em="🟢" if ap['seguridad']=='ALTA' else "🟡" if ap['seguridad']=='MEDIA' else "🔴"
@@ -1750,7 +1449,7 @@ def main():
 
         st.divider(); st.subheader("📈 Estadísticas Previstas")
         e1,e2,e3=st.columns(3)
-        e1.metric("🎯 Corners",f"{pron.corners_total:.1f}")
+        e1.metric("🎯 Corners", f"{pron.corners_total:.1f}")
         e2.metric("🟨 Tarjetas",f"{pron.tarjetas_total:.1f}")
         e3.metric("⚖️ Faltas",  f"{pron.faltas_total:.1f}")
 
@@ -1762,17 +1461,46 @@ def main():
                 if p1 is not None: st.metric("1ª Parte",f"{p1:.1f}%"); st.metric("2ª Parte",f"{p2:.1f}%")
                 else: st.info("Sin datos")
 
+        # ── ANÁLISIS POR MERCADOS (con Doble Oportunidad) ─────────────────
         st.divider(); st.subheader("📊 ANÁLISIS POR MERCADOS")
-        t1,t2,t3=st.tabs(["1X2","Over/Under","Ambos Marcan"])
+        t1,t2,t3,t4=st.tabs(["1X2","Doble Oportunidad","Over/Under","Ambos Marcan"])
+
         with t1:
             x1,x2,x3=st.columns(3)
             for cx,lb,pr in [(x1,f"🏠 {local}",mercados['1x2']['local']),
                               (x2,"🤝 Empate",mercados['1x2']['empate']),
                               (x3,f"🚀 {visitante}",mercados['1x2']['visitante'])]:
                 cx.markdown(f"**{lb}**"); cx.markdown(f"<p class='big-font'>{pr:.1f}%</p>",unsafe_allow_html=True)
+
         with t2:
+            st.markdown("Probabilidad de que el resultado sea **cualquiera de los dos** marcadores seleccionados.")
+            d1,d2,d3=st.columns(3)
+            do=mercados['doble_oportunidad']
+            # 1X
+            with d1:
+                prob_1X=do['1X']
+                color_1X="green-big" if prob_1X>70 else "big-font"
+                st.markdown(f"**🏠 1X** *(Local o Empate)*")
+                st.markdown(f"<p class='{color_1X}'>{prob_1X}%</p>",unsafe_allow_html=True)
+                st.caption(f"Local gana {pron.p_win:.1f}% + Empate {pron.p_draw:.1f}%")
+            # X2
+            with d2:
+                prob_X2=do['X2']
+                color_X2="green-big" if prob_X2>70 else "big-font"
+                st.markdown(f"**🚀 X2** *(Empate o Visitante)*")
+                st.markdown(f"<p class='{color_X2}'>{prob_X2}%</p>",unsafe_allow_html=True)
+                st.caption(f"Empate {pron.p_draw:.1f}% + Visitante {pron.p_lose:.1f}%")
+            # 12
+            with d3:
+                prob_12=do['12']
+                color_12="green-big" if prob_12>70 else "big-font"
+                st.markdown(f"**⚡ 12** *(Local o Visitante)*")
+                st.markdown(f"<p class='{color_12}'>{prob_12}%</p>",unsafe_allow_html=True)
+                st.caption(f"Local {pron.p_win:.1f}% + Visitante {pron.p_lose:.1f}%")
+
+        with t3:
             ou=mercados['over_under']
-            ois=sorted([(k,v) for k,v in ou.items() if k.startswith('Over')],key=lambda x:float(x[0].split()[1]))
+            ois=sorted([(k,v) for k,v in ou.items() if k.startswith('Over')], key=lambda x:float(x[0].split()[1]))
             uis=sorted([(k,v) for k,v in ou.items() if k.startswith('Under')],key=lambda x:float(x[0].split()[1]))
             co_,cu_=st.columns(2)
             with co_:
@@ -1785,7 +1513,8 @@ def main():
                 for n_,p_ in uis:
                     col_="#2ecc71" if p_>65 else "#e74c3c" if p_<35 else "inherit"
                     st.markdown(f"<span style='color:{col_};'>{n_}: **{p_:.1f}%**</span>",unsafe_allow_html=True)
-        with t3:
+
+        with t4:
             b1,b2=st.columns(2)
             b1.markdown("**✅ SI**"); b1.markdown(f"<p class='big-font'>{mercados['ambos_marcan']['Si']:.1f}%</p>",unsafe_allow_html=True)
             b2.markdown("**❌ NO**"); b2.markdown(f"<p class='big-font'>{mercados['ambos_marcan']['No']:.1f}%</p>",unsafe_allow_html=True)
@@ -1836,10 +1565,11 @@ def main():
                   'Over_2.5_%':round(pron.prob_over_25,1),'Ambos_Marcan_%':round(pron.prob_ambos,1),
                   'Rating':rating,'Backtest_Acc':bt_res.get('accuracy_seguro','N/A') if bt_res else 'N/A'}
             st.download_button("📥 Exportar CSV",pd.DataFrame([data]).to_csv(index=False),
-                               file_name=f"pronostico_{local}_vs_{visitante}.csv",mime="text/csv",use_container_width=True)
+                               file_name=f"pronostico_{local}_vs_{visitante}.csv",
+                               mime="text/csv",use_container_width=True)
         with ex2:
             if st.button("🔄 Nuevo Pronóstico",use_container_width=True): st.rerun()
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
