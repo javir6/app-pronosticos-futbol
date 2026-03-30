@@ -1,0 +1,79 @@
+[
+  {
+    "id": 1,
+    "fecha": "29/03/2026 18:36",
+    "partido": "Ceuta vs Cadiz",
+    "mercado": "Over 1.5",
+    "prob_modelo": 74.1,
+    "cuota": 1.32,
+    "stake": 1.0,
+    "resultado": "ganada",
+    "profit": 0.32
+  },
+  {
+    "id": 2,
+    "fecha": "29/03/2026 18:37",
+    "partido": "Valladolid vs Burgos",
+    "mercado": "Under 2.5",
+    "prob_modelo": 87.5,
+    "cuota": 1.47,
+    "stake": 1.0,
+    "resultado": "ganada",
+    "profit": 0.47
+  },
+  {
+    "id": 3,
+    "fecha": "29/03/2026 18:38",
+    "partido": "Albacete vs Castellon",
+    "mercado": "Over 1.5",
+    "prob_modelo": 81.2,
+    "cuota": 1.21,
+    "stake": 1.0,
+    "resultado": "ganada",
+    "profit": 0.21
+  },
+  {
+    "id": 4,
+    "fecha": "29/03/2026 18:39",
+    "partido": "SP Gijon vs La Coruña",
+    "mercado": "Over 1.5",
+    "prob_modelo": 79.2,
+    "cuota": 1.39,
+    "stake": 1.0,
+    "resultado": "ganada",
+    "profit": 0.39
+  },
+  {
+    "id": 5,
+    "fecha": "29/03/2026 18:43",
+    "partido": "Malaga vs Leganes",
+    "mercado": "Combinada",
+    "prob_modelo": 72.4,
+    "cuota": 1.72,
+    "stake": 1.0,
+    "resultado": "ganada",
+    "profit": 0.72
+  },
+  {
+    "id": 6,
+    "fecha": "29/03/2026 18:44",
+    "partido": "Malaga vs Leganes",
+    "mercado": "Combinada",
+    "prob_modelo": 72.4,
+    "cuota": 1.72,
+    "stake": 1.0,
+    "resultado": "ganada",
+    "profit": 0.72
+  },
+  {
+    "id": 7,
+    "fecha": "29/03/2026 18:46",
+    "partido": "Eibar vs Las Palmas",
+    "mercado": "Otro",
+    "prob_modelo": 91.8,
+    "cuota": 1.15,
+    "stake": 1.0,
+    "resultado": "perdida",
+    "profit": -1.0
+  }
+]
