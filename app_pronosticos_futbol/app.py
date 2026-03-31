@@ -898,15 +898,17 @@ def mostrar_tab_quiniela(df_total, num_partidos, factor_decay):
             marc=s.get('marcador_sugerido','?-?'); pm_=s.get('prob_marcador',0.0)
             extra_td=("<td style='color:#f1c40f;font-size:13px;font-weight:bold;'>⭐ "+marc+
                       " <span style='font-size:11px;opacity:0.7;'>("+str(pm_)+"%)</span></td>")
-        else: extra_td="<td></td>"
-        fh+=("<tr><td><b style='color:"+num_color+";'>"+str(s['num'])+"</b></td>"
+        else: extra_td="<td> None</td>"
+        fh+=("</tr><tr>"
+             "<td><b style='color:"+num_color+";'>"+str(s['num'])+"</b></td>"
              "<td style='font-size:13px;'>"+s['local'][:14]+" vs "+s['visitante'][:14]+"</td>"
              "<td><span style='color:"+c1_+";'><b>1</b> "+str(s['p1'])+"%</span>&nbsp;&nbsp;"
              "<span style='color:"+cX_+";'><b>X</b> "+str(s['pX'])+"%</span>&nbsp;&nbsp;"
              "<span style='color:"+c2_+";'><b>2</b> "+str(s['p2'])+"%</span></td>"
              "<td>"+bds+"</td><td>"+t_badge+"</td>"
              "<td style='color:#888;font-size:12px;'>"+str(s['prob_aciertopartido'])+"%</td>"+extra_td+"</tr>")
-    st.markdown("<table class='q-table'><thead><tr><th>#</th><th>Partido</th><th>Probabilidades</th>"
+    st.markdown("<table class='q-table'><thead>"
+                "<tr><th>#</th><th>Partido</th><th>Probabilidades</th>"
                 "<th>Selección</th><th>Tipo</th><th>Prob. acierto</th><th>Marcador exacto (#15)</th>"
                 "</tr></thead><tbody>"+fh+"</tbody></table>",unsafe_allow_html=True)
     st.divider()
@@ -1117,8 +1119,61 @@ def obtener_historial_h2h(df, local, visitante, limite=8):
 
 
 # ============================================================================
-# FUNCIONES DE ANÁLISIS
+# FUNCIONES DE ANÁLISIS (MEJORADAS PARA INCLUIR DOBLE OPORTUNIDAD Y CÓRNERS EN TOP 5)
 # ============================================================================
+
+def _prob_corners_simple(corners_total):
+    """Devuelve un diccionario con las líneas de corners más relevantes (para usar en TOP 5)."""
+    if corners_total <= 0:
+        return {}
+    # Líneas estándar
+    lineas = [7.5, 8.5, 9.5, 10.5]
+    res = {}
+    for l in lineas:
+        over = (1 - poisson.cdf(int(l), corners_total)) * 100
+        under = poisson.cdf(int(l), corners_total) * 100
+        res[f'Córners Over {l}'] = over
+        res[f'Córners Under {l}'] = under
+    return res
+
+
+def recomendar_apuesta_segura(p, cuotas):
+    """
+    Devuelve una lista ampliada con apuestas de 1X2, Doble Oportunidad, Over/Under, Ambos Marcan y Córners.
+    """
+    items = [
+        (f'Local: {p.local}', p.p_win, 'local', 2.0),
+        ('Empate', p.p_draw, 'empate', 3.2),
+        (f'Visitante: {p.visitante}', p.p_lose, 'visitante', 3.0),
+        ('1X (Local o Empate)', p.p_win + p.p_draw, None, 1.3),
+        ('X2 (Empate o Visitante)', p.p_draw + p.p_lose, None, 1.3),
+        ('12 (Local o Visitante)', p.p_win + p.p_lose, None, 1.3),
+        ('Over 2.5', p.prob_over_25, None, 2.0),
+        ('Under 2.5', p.prob_under_25, None, 1.9),
+        ('Ambos marcan - SI', p.prob_ambos, None, 1.95),
+        ('Ambos marcan - NO', 100 - p.prob_ambos, None, 1.85),
+    ]
+
+    # Añadir córners si hay datos
+    if p.corners_total > 0:
+        probs_c = _prob_corners_simple(p.corners_total)
+        for mercado, prob in probs_c.items():
+            if prob > 0:
+                cuota_est = max(1.2, min(3.5, round(100 / max(prob, 1), 2)))
+                items.append((mercado, prob, None, cuota_est))
+
+    res = []
+    for nombre, prob, clave, cd in items:
+        cuota = (cuotas.get(clave, {}).get('cuota', cd) if (cuotas and clave) else cd)
+        seg = 'ALTA' if prob > 65 else 'MEDIA' if prob > 50 else 'BAJA'
+        tipo = '1X2' if clave in ['local', 'empate', 'visitante'] else 'Mercado'
+        if 'Córners' in nombre:
+            tipo = 'Córners'
+        elif '1X' in nombre or 'X2' in nombre or '12' in nombre:
+            tipo = 'Doble Oportunidad'
+        res.append({'nombre': nombre, 'tipo': tipo, 'probabilidad': prob, 'cuota': cuota, 'seguridad': seg})
+    return sorted(res, key=lambda x: x['probabilidad'], reverse=True)
+
 
 def calcular_probabilidades_todos_mercados(p):
     return {
@@ -1141,6 +1196,7 @@ def calcular_probabilidades_todos_mercados(p):
         'ambos_marcan':{'Si':p.prob_ambos,'No':100-p.prob_ambos},
     }
 
+
 def encontrar_mejores_cuotas(df_p):
     if df_p.empty: return None
     row=df_p.iloc[0]
@@ -1158,19 +1214,6 @@ def encontrar_mejores_cuotas(df_p):
 
 def calcular_valor_esperado(prob, cuota):
     return -100 if cuota<=0 or prob<=0 else (prob/100*cuota-1)*100
-
-def recomendar_apuesta_segura(p, cuotas):
-    items=[(f'Local: {p.local}',p.p_win,'local',2.0),('Empate',p.p_draw,'empate',3.2),
-           (f'Visitante: {p.visitante}',p.p_lose,'visitante',3.0),
-           ('Over 2.5',p.prob_over_25,None,2.0),('Under 2.5',p.prob_under_25,None,1.9),
-           ('Ambos marcan - SI',p.prob_ambos,None,1.95),('Ambos marcan - NO',100-p.prob_ambos,None,1.85)]
-    res=[]
-    for nombre,prob,clave,cd in items:
-        cuota=(cuotas.get(clave,{}).get('cuota',cd) if (cuotas and clave) else cd)
-        seg='ALTA' if prob>65 else 'MEDIA' if prob>50 else 'BAJA'
-        tipo='1X2' if clave in ['local','empate','visitante'] else 'Mercado'
-        res.append({'nombre':nombre,'tipo':tipo,'probabilidad':prob,'cuota':cuota,'seguridad':seg})
-    return sorted(res,key=lambda x:x['probabilidad'],reverse=True)
 
 def calcular_rating_confianza(p, bt=None):
     r=0; n=len(p.df_local)+len(p.df_visitante)
@@ -1271,7 +1314,7 @@ def main():
 
     equipos=sorted(set(df_total['HomeTeam'].unique())|set(df_total['AwayTeam'].unique()))
 
-    # ── SIDEBAR ──────────────────────────────────────────────────────────
+    # ── SIDEBAR (igual que antes) ──────────────────────────────────────────
     with st.sidebar:
         mostrar_info_sesion_sidebar()
         st.header("⚙️ CONFIGURACIÓN")
@@ -1319,7 +1362,7 @@ def main():
     with tab_c: mostrar_tab_combinada(df_total,num_partidos,factor_decay,api_key_anthropic)
     with tab_q: mostrar_tab_quiniela(df_total,num_partidos,factor_decay)
 
-    # ── PRONÓSTICO INDIVIDUAL ─────────────────────────────────────────────
+    # ── PRONÓSTICO INDIVIDUAL (REORDENADO) ────────────────────────────────
     with tab_p:
         if st.session_state.favoritos and st.checkbox("⭐ Solo favoritos"):
             disp=st.session_state.favoritos
@@ -1385,84 +1428,36 @@ def main():
                             f"<span style='font-size:20px;'>{a['tipo']}</span><br>{a['mensaje']}</div>",
                             unsafe_allow_html=True)
 
+        # ==================================================
+        # NUEVO ORDEN DE BLOQUES
+        # ==================================================
+
+        # 1. ANÁLISIS POR MERCADOS (incluye marcador exacto al inicio)
         st.divider()
-        cols=st.columns(4)
-        with cols[0]:
-            st.subheader("🎯 Marcador")
-            gl,gv,pm=pron.get_marcador_sugerido()
-            st.markdown(f"<h1 style='color:#FF4B4B;text-align:center;'>{int(gl)} - {int(gv)}</h1>",unsafe_allow_html=True)
-            st.caption(f"Prob: {pm:.1f}%")
-        with cols[1]:
-            st.subheader("📊 1X2")
-            st.metric(f"1 {local[:10]}",   f"{pron.p_win:.1f}%")
-            st.metric("X Empate",           f"{pron.p_draw:.1f}%")
-            st.metric(f"2 {visitante[:10]}",f"{pron.p_lose:.1f}%")
-        with cols[2]:
-            st.subheader("⚽ Goles")
-            co="green-big" if pron.prob_over_25>70 else "big-font"
-            st.markdown(f"<p class='{co}'>Over 2.5: {pron.prob_over_25:.1f}%</p>",unsafe_allow_html=True)
-            st.markdown(f"<p class='big-font'>Under 2.5: {pron.prob_under_25:.1f}%</p>",unsafe_allow_html=True)
-        with cols[3]:
-            st.subheader("🥅 Ambos")
-            ca="green-big" if pron.prob_ambos>65 else "big-font"
-            st.markdown(f"<p class='{ca}'>Sí: {pron.prob_ambos:.1f}%</p>",unsafe_allow_html=True)
-            st.markdown(f"<p class='big-font'>No: {100-pron.prob_ambos:.1f}%</p>",unsafe_allow_html=True)
+        st.subheader("📊 ANÁLISIS POR MERCADOS")
 
-        r1,r2,r3=st.columns(3)
-        with r1:
-            st.metric("📊 Confianza",f"{rating}%")
-            if rating>70:   st.success("ALTA")
-            elif rating>50: st.warning("MEDIA")
-            else:           st.error("BAJA")
-        with r2:
-            if cuotas_disp and 'local' in cuotas_disp:
-                ic="⚡" if cuotas_disp['local'].get('tipo')=='real' else "📊"
-                st.metric(f"{ic} Mejor Local",f"{cuotas_disp['local']['cuota']:.2f}"); st.caption(cuotas_disp['local']['casa'])
-            else: st.metric("💰 Local","No disponible")
-        with r3:
-            if cuotas_disp and 'visitante' in cuotas_disp:
-                ic="⚡" if cuotas_disp['visitante'].get('tipo')=='real' else "📊"
-                st.metric(f"{ic} Mejor Visitante",f"{cuotas_disp['visitante']['cuota']:.2f}"); st.caption(cuotas_disp['visitante']['casa'])
-            else: st.metric("💰 Visitante","No disponible")
+        # Marcador exacto + confianza
+        gl, gv, pm = pron.get_marcador_sugerido()
+        st.markdown(f"""
+        <div style='background:#1e2a3a; border-radius:12px; padding:15px; margin-bottom:20px;'>
+            <div style='display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;'>
+                <div>
+                    <span style='font-size:18px; font-weight:bold;'>🎯 Marcador exacto más probable</span><br>
+                    <span style='font-size:42px; font-weight:bold; color:#e94560;'>{int(gl)} - {int(gv)}</span>
+                </div>
+                <div>
+                    <span style='font-size:18px; font-weight:bold;'>Probabilidad:</span><br>
+                    <span style='font-size:28px; font-weight:bold;'>{pm:.1f}%</span>
+                </div>
+                <div>
+                    <span style='font-size:18px; font-weight:bold;'>Confianza del modelo:</span><br>
+                    <span style='font-size:28px; font-weight:bold;'>{rating}%</span>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-        if va and va.get('mejor_value'):
-            st.divider(); v=va['mejor_value']['value']
-            t="⚡ Tiempo real" if va['mejor_value'].get('tipo')=='real' else "📊 Histórica"
-            cls='value-alta' if v>10 else 'value-media'; lbl="🔥 VALUE FUERTE" if v>10 else "💰 VALUE DETECTADO"
-            if v>5:
-                st.markdown(f"<div class='{cls}'>{lbl} ({t})<br>"
-                            f"Apuesta: <b>{va['mejor_value']['mercado']}</b><br>"
-                            f"Cuota: {va['mejor_value']['cuota']:.2f} | Ventaja: +{v:.1f}%</div>",unsafe_allow_html=True)
-
-        st.divider(); st.subheader("🎯 TOP 5 APUESTAS SUGERIDAS")
-        for i,ap in enumerate(aps[:5]):
-            cc="#2ecc71" if ap['seguridad']=='ALTA' else "#f1c40f" if ap['seguridad']=='MEDIA' else "#e74c3c"
-            em="🟢" if ap['seguridad']=='ALTA' else "🟡" if ap['seguridad']=='MEDIA' else "🔴"
-            ve=calcular_valor_esperado(ap['probabilidad'],ap['cuota'])
-            a1,a2,a3,a4=st.columns([3,1,1,1])
-            a1.markdown(f"**{i+1}. {ap['nombre']}**"); a1.caption(ap['tipo'])
-            a2.markdown(f"<p style='color:{cc};font-weight:bold;font-size:20px;'>{ap['probabilidad']:.1f}%</p>",unsafe_allow_html=True)
-            a3.markdown(f"<p style='font-size:20px;'>{em}</p>",unsafe_allow_html=True)
-            if ve>5:    a4.markdown(f"<p style='color:#2ecc71;font-weight:bold;'>EV:+{ve:.1f}%</p>",unsafe_allow_html=True)
-            elif ve<-5: a4.markdown(f"<p style='color:#e74c3c;'>EV:{ve:.1f}%</p>",unsafe_allow_html=True)
-            else:       a4.markdown(f"EV:{ve:.1f}%")
-
-        st.divider(); st.subheader("📈 Estadísticas Previstas")
-        e1,e2,e3=st.columns(3)
-        e1.metric("🎯 Corners", f"{pron.corners_total:.1f}")
-        e2.metric("🟨 Tarjetas",f"{pron.tarjetas_total:.1f}")
-        e3.metric("⚖️ Faltas",  f"{pron.faltas_total:.1f}")
-
-        st.write("---"); st.subheader("🕐 Probabilidad por partes")
-        pp1,pp2=st.columns(2)
-        for cp,eq,p1,p2 in [(pp1,local,p1l,p2l),(pp2,visitante,p1v,p2v)]:
-            with cp:
-                st.markdown(f"**{eq}**")
-                if p1 is not None: st.metric("1ª Parte",f"{p1:.1f}%"); st.metric("2ª Parte",f"{p2:.1f}%")
-                else: st.info("Sin datos")
-
-        # ── ANÁLISIS POR MERCADOS (con Doble Oportunidad) ─────────────────
-        st.divider(); st.subheader("📊 ANÁLISIS POR MERCADOS")
+        # Tabs de mercados (1X2, Doble Oportunidad, Over/Under, Ambos Marcan)
         t1,t2,t3,t4=st.tabs(["1X2","Doble Oportunidad","Over/Under","Ambos Marcan"])
 
         with t1:
@@ -1473,24 +1468,20 @@ def main():
                 cx.markdown(f"**{lb}**"); cx.markdown(f"<p class='big-font'>{pr:.1f}%</p>",unsafe_allow_html=True)
 
         with t2:
-            st.markdown("Probabilidad de que el resultado sea **cualquiera de los dos** marcadores seleccionados.")
             d1,d2,d3=st.columns(3)
             do=mercados['doble_oportunidad']
-            # 1X
             with d1:
                 prob_1X=do['1X']
                 color_1X="green-big" if prob_1X>70 else "big-font"
                 st.markdown(f"**🏠 1X** *(Local o Empate)*")
                 st.markdown(f"<p class='{color_1X}'>{prob_1X}%</p>",unsafe_allow_html=True)
                 st.caption(f"Local gana {pron.p_win:.1f}% + Empate {pron.p_draw:.1f}%")
-            # X2
             with d2:
                 prob_X2=do['X2']
                 color_X2="green-big" if prob_X2>70 else "big-font"
                 st.markdown(f"**🚀 X2** *(Empate o Visitante)*")
                 st.markdown(f"<p class='{color_X2}'>{prob_X2}%</p>",unsafe_allow_html=True)
                 st.caption(f"Empate {pron.p_draw:.1f}% + Visitante {pron.p_lose:.1f}%")
-            # 12
             with d3:
                 prob_12=do['12']
                 color_12="green-big" if prob_12>70 else "big-font"
@@ -1519,6 +1510,14 @@ def main():
             b1.markdown("**✅ SI**"); b1.markdown(f"<p class='big-font'>{mercados['ambos_marcan']['Si']:.1f}%</p>",unsafe_allow_html=True)
             b2.markdown("**❌ NO**"); b2.markdown(f"<p class='big-font'>{mercados['ambos_marcan']['No']:.1f}%</p>",unsafe_allow_html=True)
 
+        # 2. Estadísticas Previstas
+        st.divider(); st.subheader("📈 Estadísticas Previstas")
+        e1,e2,e3=st.columns(3)
+        e1.metric("🎯 Corners", f"{pron.corners_total:.1f}")
+        e2.metric("🟨 Tarjetas",f"{pron.tarjetas_total:.1f}")
+        e3.metric("⚖️ Faltas",  f"{pron.faltas_total:.1f}")
+
+        # 3. Probabilidad de anotar (≥1 gol)
         st.divider(); st.subheader("🎯 Probabilidad de anotar (≥1 gol)")
         g1_,g2_,g3_=st.columns([2,2,1])
         with g1_:
@@ -1535,6 +1534,16 @@ def main():
             st.markdown(f"<p style='color:{cf};font-weight:bold;'>{fi}</p>",unsafe_allow_html=True)
             st.caption(tip)
 
+        # 4. Probabilidad por partes
+        st.write("---"); st.subheader("🕐 Probabilidad por partes")
+        pp1,pp2=st.columns(2)
+        for cp,eq,p1,p2 in [(pp1,local,p1l,p2l),(pp2,visitante,p1v,p2v)]:
+            with cp:
+                st.markdown(f"**{eq}**")
+                if p1 is not None: st.metric("1ª Parte",f"{p1:.1f}%"); st.metric("2ª Parte",f"{p2:.1f}%")
+                else: st.info("Sin datos")
+
+        # 5. Historial Directo
         st.divider(); st.subheader("🔙 Historial Directo")
         h2h=obtener_historial_h2h(df_total,local,visitante)
         if not h2h.empty:
@@ -1555,6 +1564,21 @@ def main():
         else:
             st.info("Sin historial entre estos equipos")
 
+        # 6. TOP 5 APUESTAS SUGERIDAS (con doble oportunidad y córners)
+        st.divider(); st.subheader("🎯 TOP 5 APUESTAS SUGERIDAS")
+        for i,ap in enumerate(aps[:5]):
+            cc="#2ecc71" if ap['seguridad']=='ALTA' else "#f1c40f" if ap['seguridad']=='MEDIA' else "#e74c3c"
+            em="🟢" if ap['seguridad']=='ALTA' else "🟡" if ap['seguridad']=='MEDIA' else "🔴"
+            ve=calcular_valor_esperado(ap['probabilidad'],ap['cuota'])
+            a1,a2,a3,a4=st.columns([3,1,1,1])
+            a1.markdown(f"**{i+1}. {ap['nombre']}**"); a1.caption(ap['tipo'])
+            a2.markdown(f"<p style='color:{cc};font-weight:bold;font-size:20px;'>{ap['probabilidad']:.1f}%</p>",unsafe_allow_html=True)
+            a3.markdown(f"<p style='font-size:20px;'>{em}</p>",unsafe_allow_html=True)
+            if ve>5:    a4.markdown(f"<p style='color:#2ecc71;font-weight:bold;'>EV:+{ve:.1f}%</p>",unsafe_allow_html=True)
+            elif ve<-5: a4.markdown(f"<p style='color:#e74c3c;'>EV:{ve:.1f}%</p>",unsafe_allow_html=True)
+            else:       a4.markdown(f"EV:{ve:.1f}%")
+
+        # Exportar CSV
         st.divider()
         ex1,ex2=st.columns(2)
         with ex1:
