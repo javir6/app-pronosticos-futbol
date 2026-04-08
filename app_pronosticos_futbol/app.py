@@ -302,8 +302,8 @@ class PronosticadorDixonColes:
         self.prob_local_1    =(1-poisson.pmf(0,self.media_local))*100
         self.prob_visitante_1=(1-poisson.pmf(0,self.media_visitante))*100
         self.prob_ambos      =(self.prob_local_1/100*self.prob_visitante_1/100)*100
-        self.prob_over_25    =(1-poisson.cdf(2,self.media_total))*100
-        self.prob_under_25   =poisson.cdf(2,self.media_total)*100
+        self.prob_mas_de_25    =(1-poisson.cdf(2,self.media_total))*100
+        self.prob_menos_de_25   =poisson.cdf(2,self.media_total)*100
         self.matriz,self.p_win,self.p_draw,self.p_lose=self._calcular_matriz()
         self.corners_total  =self._calcular_media_estadistica('HC','AC')
         self.tarjetas_total =self._calcular_media_estadistica(['HY','HR'],['AY','AR'])
@@ -402,14 +402,14 @@ def _prob_corners(corners_total):
     if corners_total <= 0:
         return {}
     return {
-        'Córners Over 7.5':  round((1-poisson.cdf(7,  corners_total))*100, 1),
-        'Córners Under 7.5': round(poisson.cdf(7,  corners_total)*100, 1),
-        'Córners Over 8.5':  round((1-poisson.cdf(8,  corners_total))*100, 1),
-        'Córners Under 8.5': round(poisson.cdf(8,  corners_total)*100, 1),
-        'Córners Over 9.5':  round((1-poisson.cdf(9,  corners_total))*100, 1),
-        'Córners Under 9.5': round(poisson.cdf(9,  corners_total)*100, 1),
-        'Córners Over 10.5': round((1-poisson.cdf(10, corners_total))*100, 1),
-        'Córners Under 10.5':round(poisson.cdf(10, corners_total)*100, 1),
+        'Córners más de 7.5':  round((1-poisson.cdf(7,  corners_total))*100, 1),
+        'Córners menos de 7.5': round(poisson.cdf(7,  corners_total)*100, 1),
+        'Córners más de 8.5':  round((1-poisson.cdf(8,  corners_total))*100, 1),
+        'Córners menos de 8.5': round(poisson.cdf(8,  corners_total)*100, 1),
+        'Córners más de 9.5':  round((1-poisson.cdf(9,  corners_total))*100, 1),
+        'Córners menos de 9.5': round(poisson.cdf(9,  corners_total)*100, 1),
+        'Córners más de 10.5': round((1-poisson.cdf(10, corners_total))*100, 1),
+        'Córners menos de 10.5':round(poisson.cdf(10, corners_total)*100, 1),
     }
 
 
@@ -428,10 +428,10 @@ def analizar_partido_para_combinada(df_total, local, visitante, num_partidos=20,
             {'mercado':'1X',                       'prob':p.p_win+p.p_draw, 'tipo':'D.Oport.','cuota_est':max(1.1,100/max(p.p_win+p.p_draw,1))},
             {'mercado':'X2',                       'prob':p.p_draw+p.p_lose,'tipo':'D.Oport.','cuota_est':max(1.1,100/max(p.p_draw+p.p_lose,1))},
             {'mercado':'12',                       'prob':p.p_win+p.p_lose, 'tipo':'D.Oport.','cuota_est':max(1.1,100/max(p.p_win+p.p_lose,1))},
-            {'mercado':'Over 1.5',  'prob':(1-poisson.cdf(1,p.media_total))*100,'tipo':'Goles','cuota_est':1.55},
-            {'mercado':'Under 1.5', 'prob':poisson.cdf(1,p.media_total)*100,     'tipo':'Goles','cuota_est':2.40},
-            {'mercado':'Over 2.5',  'prob':p.prob_over_25,  'tipo':'Goles','cuota_est':2.0},
-            {'mercado':'Under 2.5', 'prob':p.prob_under_25, 'tipo':'Goles','cuota_est':1.9},
+            {'mercado':'más de 1.5',  'prob':(1-poisson.cdf(1,p.media_total))*100,'tipo':'Goles','cuota_est':1.55},
+            {'mercado':'menos de 1.5', 'prob':poisson.cdf(1,p.media_total)*100,     'tipo':'Goles','cuota_est':2.40},
+            {'mercado':'más de 2.5',  'prob':p.prob_mas_de_25,  'tipo':'Goles','cuota_est':2.0},
+            {'mercado':'menos de 2.5', 'prob':p.prob_menos_de_25, 'tipo':'Goles','cuota_est':1.9},
             {'mercado':'Ambos Marcan - SI','prob':p.prob_ambos,      'tipo':'BTTS','cuota_est':1.95},
             {'mercado':'Ambos Marcan - NO','prob':100-p.prob_ambos,  'tipo':'BTTS','cuota_est':1.85},
         ]
@@ -440,9 +440,9 @@ def analizar_partido_para_combinada(df_total, local, visitante, num_partidos=20,
         if p.corners_total > 0:
             probs_c=_prob_corners(p.corners_total)
             # Seleccionamos la línea más cercana a la media para que sea la más relevante
-            lineas_over =['Córners Over 7.5','Córners Over 8.5','Córners Over 9.5','Córners Over 10.5']
-            lineas_under=['Córners Under 7.5','Córners Under 8.5','Córners Under 9.5','Córners Under 10.5']
-            for mercado_c in lineas_over+lineas_under:
+            lineas_mas =['Córners más de 7.5','Córners más de 8.5','Córners más de 9.5','Córners más de 10.5']
+            lineas_menos=['Córners menos de 7.5','Córners menos de 8.5','Córners menos de 9.5','Córners menos de 10.5']
+            for mercado_c in lineas_mas+lineas_menos:
                 prob_c=probs_c.get(mercado_c,0)
                 if prob_c>0:
                     linea=float(mercado_c.split()[-1])
@@ -454,7 +454,7 @@ def analizar_partido_para_combinada(df_total, local, visitante, num_partidos=20,
         return {
             'local':local,'visitante':visitante,
             'p_win':round(p.p_win,1),'p_draw':round(p.p_draw,1),'p_lose':round(p.p_lose,1),
-            'prob_over25':round(p.prob_over_25,1),'prob_ambos':round(p.prob_ambos,1),
+            'prob_mas_de_25':round(p.prob_mas_de_25,1),'prob_ambos':round(p.prob_ambos,1),
             'corners_total':round(p.corners_total,1),
             'media_local':round(p.media_local,2),'media_visit':round(p.media_visitante,2),
             'modo':p.modo_modelo,'mejor_opcion':mejor,
@@ -496,7 +496,7 @@ def calcular_mejor_combinada(partidos, min_p=2, max_p=4, prob_ind=0.52, prob_con
 
 def llamar_ia_combinada(partidos, mejor_combo, api_key=""):
     rs=[f"- {p['local']} vs {p['visitante']}: L={p['p_win']}% E={p['p_draw']}% V={p['p_lose']}% "
-        f"O25={p['prob_over25']}% BTTS={p['prob_ambos']}% Corners={p['corners_total']}" for p in partidos]
+        f"O25={p['prob_mas_de_25']}% BTTS={p['prob_ambos']}% Corners={p['corners_total']}" for p in partidos]
     rc=[f"- {s['partido_label']}: {s['mercado']} ({s['prob']*100:.1f}%, ~{s['cuota_est']:.2f}) [{s['tipo']}]"
         for s in mejor_combo['selecciones']]
     prompt=(f"Eres un analista experto en apuestas deportivas.\n\nPARTIDOS:\n{chr(10).join(rs)}\n\n"
@@ -624,7 +624,7 @@ def mostrar_tab_combinada(df_total, num_partidos, factor_decay, api_key_anthropi
         st.markdown("### 📊 Resumen de partidos analizados")
         filas=[{'Partido':f"{p['local']} vs {p['visitante']}",
                 'Local %':p['p_win'],'Empate %':p['p_draw'],'Visit. %':p['p_lose'],
-                'Over 2.5 %':p['prob_over25'],'BTTS %':p['prob_ambos'],
+                'más de 2.5 %':p['prob_mas_de_25'],'BTTS %':p['prob_ambos'],
                 'Córners (media)':p['corners_total'],
                 'Mejor':p['mejor_opcion']['mercado'],
                 'Prob.':f"{p['mejor_opcion']['prob']:.1f}%",'Modelo':p['modo']} for p in res]
@@ -899,14 +899,14 @@ def mostrar_tab_quiniela(df_total, num_partidos, factor_decay):
             extra_td=("<td style='color:#f1c40f;font-size:13px;font-weight:bold;'>⭐ "+marc+
                       " <span style='font-size:11px;opacity:0.7;'>("+str(pm_)+"%)</span></td>")
         else: extra_td="<td> None</td>"
-        fh+=("</tr><tr>"
+        fh+=("<tr><td>"
              "<td><b style='color:"+num_color+";'>"+str(s['num'])+"</b></td>"
              "<td style='font-size:13px;'>"+s['local'][:14]+" vs "+s['visitante'][:14]+"</td>"
              "<td><span style='color:"+c1_+";'><b>1</b> "+str(s['p1'])+"%</span>&nbsp;&nbsp;"
              "<span style='color:"+cX_+";'><b>X</b> "+str(s['pX'])+"%</span>&nbsp;&nbsp;"
              "<span style='color:"+c2_+";'><b>2</b> "+str(s['p2'])+"%</span></td>"
              "<td>"+bds+"</td><td>"+t_badge+"</td>"
-             "<td style='color:#888;font-size:12px;'>"+str(s['prob_aciertopartido'])+"%</td>"+extra_td+"</tr>")
+             "<td style='color:#888;font-size:12px;'>"+str(s['prob_aciertopartido'])+"%</td>"+extra_td+"<tr>")
     st.markdown("<table class='q-table'><thead>"
                 "<tr><th>#</th><th>Partido</th><th>Probabilidades</th>"
                 "<th>Selección</th><th>Tipo</th><th>Prob. acierto</th><th>Marcador exacto (#15)</th>"
@@ -977,7 +977,7 @@ def ejecutar_backtesting(_df_total, num_test=200, umbral=0.55):
             prb={'local':pron.p_win/100,'empate':pron.p_draw/100,'visitante':pron.p_lose/100}
             pm=max(prb,key=prb.get)
             res.append({'prob':max(prb.values()),'correcto':pm==rr,
-                        'over_real':(p['FTHG']+p['FTAG'])>2.5,'prob_over':pron.prob_over_25/100,
+                        'mas_de_real':(p['FTHG']+p['FTAG'])>2.5,'prob_mas_de':pron.prob_mas_de_25/100,
                         'ambos_real':p['FTHG']>0 and p['FTAG']>0,'prob_ambos':pron.prob_ambos/100})
         except: continue
     pb.empty()
@@ -991,12 +991,12 @@ def ejecutar_backtesting(_df_total, num_test=200, umbral=0.55):
                         'Prob Media Pred.':round(s['prob'].mean()*100,1),
                         'Tasa Real':round(s['correcto'].mean()*100,1),
                         'Diferencia':round((s['correcto'].mean()-s['prob'].mean())*100,1)})
-    om=df_r['prob_over']>=0.6; am=df_r['prob_ambos']>=0.6
+    om=df_r['prob_mas_de']>=0.6; am=df_r['prob_ambos']>=0.6
     roi=df_s2['correcto'].apply(lambda x:0.9 if x else -1).mean()*100 if not df_s2.empty else 0
     return {'total_partidos':len(df_r),'accuracy_total':round(df_r['correcto'].mean()*100,1),
             'accuracy_seguro':round(df_s2['correcto'].mean()*100,1) if not df_s2.empty else 0,
             'partidos_seguros':len(df_s2),'calibracion':pd.DataFrame(cal),
-            'accuracy_over':round(df_r[om]['over_real'].mean()*100,1) if om.sum()>0 else 0,
+            'accuracy_mas_de':round(df_r[om]['mas_de_real'].mean()*100,1) if om.sum()>0 else 0,
             'accuracy_ambos':round(df_r[am]['ambos_real'].mean()*100,1) if am.sum()>0 else 0,
             'roi_simulado':round(roi,1)}
 
@@ -1018,7 +1018,7 @@ def mostrar_tab_backtesting(df_total):
         m1.metric("📊 Partidos",r['total_partidos']); m2.metric("🎯 Accuracy",f"{r['accuracy_total']}%")
         m3.metric(f"✅ Acc.≥{int(umb*100)}%",f"{r['accuracy_seguro']}%"); m4.metric("💰 ROI",f"{r['roi_simulado']}%")
         o1,o2,o3=st.columns(3)
-        o1.metric("⚽ Acc. Over 2.5",f"{r['accuracy_over']}%"); o2.metric("🥅 Acc. Ambos",f"{r['accuracy_ambos']}%"); o3.metric("🔒 Alta confianza",r['partidos_seguros'])
+        o1.metric("⚽ Acc. más de 2.5",f"{r['accuracy_mas_de']}%"); o2.metric("🥅 Acc. Ambos",f"{r['accuracy_ambos']}%"); o3.metric("🔒 Alta confianza",r['partidos_seguros'])
         if not r['calibracion'].empty: st.subheader("📈 Calibración"); st.dataframe(r['calibracion'],use_container_width=True)
         if r['accuracy_seguro']>55:   st.success(f"✅ Accuracy {r['accuracy_seguro']}% — edge estadístico.")
         elif r['accuracy_seguro']>45: st.warning(f"⚠️ Accuracy {r['accuracy_seguro']}% — mejora ligera.")
@@ -1130,16 +1130,16 @@ def _prob_corners_simple(corners_total):
     lineas = [7.5, 8.5, 9.5, 10.5]
     res = {}
     for l in lineas:
-        over = (1 - poisson.cdf(int(l), corners_total)) * 100
-        under = poisson.cdf(int(l), corners_total) * 100
-        res[f'Córners Over {l}'] = over
-        res[f'Córners Under {l}'] = under
+        mas_de = (1 - poisson.cdf(int(l), corners_total)) * 100
+        menos_de = poisson.cdf(int(l), corners_total) * 100
+        res[f'Córners más de {l}'] = mas_de
+        res[f'Córners menos de {l}'] = menos_de
     return res
 
 
 def recomendar_apuesta_segura(p, cuotas):
     """
-    Devuelve una lista ampliada con apuestas de 1X2, Doble Oportunidad, Over/Under, Ambos Marcan y Córners.
+    Devuelve una lista ampliada con apuestas de 1X2, Doble Oportunidad, más de/menos de, Ambos Marcan y Córners.
     """
     items = [
         (f'Local: {p.local}', p.p_win, 'local', 2.0),
@@ -1148,8 +1148,8 @@ def recomendar_apuesta_segura(p, cuotas):
         ('1X (Local o Empate)', p.p_win + p.p_draw, None, 1.3),
         ('X2 (Empate o Visitante)', p.p_draw + p.p_lose, None, 1.3),
         ('12 (Local o Visitante)', p.p_win + p.p_lose, None, 1.3),
-        ('Over 2.5', p.prob_over_25, None, 2.0),
-        ('Under 2.5', p.prob_under_25, None, 1.9),
+        ('más de 2.5', p.prob_mas_de_25, None, 2.0),
+        ('menos de 2.5', p.prob_menos_de_25, None, 1.9),
         ('Ambos marcan - SI', p.prob_ambos, None, 1.95),
         ('Ambos marcan - NO', 100 - p.prob_ambos, None, 1.85),
     ]
@@ -1183,15 +1183,15 @@ def calcular_probabilidades_todos_mercados(p):
             'X2': round(p.p_draw+p.p_lose,1),
             '12': round(p.p_win+p.p_lose,1),
         },
-        'over_under':{
-            'Over 0.5': round((1-poisson.pmf(0,p.media_total))*100,1),
-            'Under 0.5':round(poisson.pmf(0,p.media_total)*100,1),
-            'Over 1.5': round((1-poisson.cdf(1,p.media_total))*100,1),
-            'Under 1.5':round(poisson.cdf(1,p.media_total)*100,1),
-            'Over 2.5': round(p.prob_over_25,1),
-            'Under 2.5':round(p.prob_under_25,1),
-            'Over 3.5': round((1-poisson.cdf(3,p.media_total))*100,1),
-            'Under 3.5':round(poisson.cdf(3,p.media_total)*100,1),
+        'mas_menos':{
+            'más de 0.5': round((1-poisson.pmf(0,p.media_total))*100,1),
+            'menos de 0.5':round(poisson.pmf(0,p.media_total)*100,1),
+            'más de 1.5': round((1-poisson.cdf(1,p.media_total))*100,1),
+            'menos de 1.5':round(poisson.cdf(1,p.media_total)*100,1),
+            'más de 2.5': round(p.prob_mas_de_25,1),
+            'menos de 2.5':round(p.prob_menos_de_25,1),
+            'más de 3.5': round((1-poisson.cdf(3,p.media_total))*100,1),
+            'menos de 3.5':round(poisson.cdf(3,p.media_total)*100,1),
         },
         'ambos_marcan':{'Si':p.prob_ambos,'No':100-p.prob_ambos},
     }
@@ -1220,7 +1220,7 @@ def calcular_rating_confianza(p, bt=None):
     r+=25 if n>35 else (15 if n>20 else 5)
     mp=max(p.p_win,p.p_draw,p.p_lose)
     r+=25 if mp>60 else (15 if mp>50 else 5)
-    r+=15 if abs(p.prob_over_25-p.prob_under_25)>30 else (10 if abs(p.prob_over_25-p.prob_under_25)>15 else 3)
+    r+=15 if abs(p.prob_mas_de_25-p.prob_menos_de_25)>30 else (10 if abs(p.prob_mas_de_25-p.prob_menos_de_25)>15 else 3)
     r+=15 if abs(p.prob_ambos-50)>25 else (10 if abs(p.prob_ambos-50)>10 else 3)
     if hasattr(p,'modo_modelo') and p.modo_modelo=="Dixon-Coles": r+=10
     if bt and bt.get('accuracy_seguro',0)>55: r+=10
@@ -1250,7 +1250,7 @@ def check_alertas(p, cuotas, va, bt=None):
                    'mensaje':f"{v['mercado']} +{v['value']:.1f}% ({t})",'clase':'alerta-verde'})
     mp=max(p.p_win,p.p_draw,p.p_lose)
     if mp>70:             al.append({'tipo':'🎯 FAVORITO CLARO','mensaje':f"{mp:.1f}%",'clase':'alerta-amarilla'})
-    if p.prob_over_25>75: al.append({'tipo':'⚽ MUCHOS GOLES','mensaje':f"Over 2.5 al {p.prob_over_25:.1f}%",'clase':'alerta-amarilla'})
+    if p.prob_mas_de_25>75: al.append({'tipo':'⚽ MUCHOS GOLES','mensaje':f"más de 2.5 al {p.prob_mas_de_25:.1f}%",'clase':'alerta-amarilla'})
     if p.prob_ambos>75:   al.append({'tipo':'🥅 AMBOS MARCAN','mensaje':f"{p.prob_ambos:.1f}%",'clase':'alerta-amarilla'})
     if bt and bt.get('accuracy_seguro',0)>60:
         al.append({'tipo':'✅ MODELO VALIDADO','mensaje':f"Accuracy: {bt['accuracy_seguro']:.1f}%",'clase':'alerta-verde'})
@@ -1269,8 +1269,8 @@ def analizar_ligas(df):
         if len(dl)>10:
             s.append({'Liga':nombre,'Partidos':len(dl),
                       'Media Goles':round((dl['FTHG'].mean()+dl['FTAG'].mean())/2,2),
-                      'Over 2.5 %':round((dl['FTHG']+dl['FTAG']>2.5).mean()*100,1)})
-    return pd.DataFrame(s).sort_values('Over 2.5 %',ascending=False)
+                      'más de 2.5 %':round((dl['FTHG']+dl['FTAG']>2.5).mean()*100,1)})
+    return pd.DataFrame(s).sort_values('más de 2.5 %',ascending=False)
 
 def calcular_prob_mitades(df, equipo):
     ld=df[df['HomeTeam']==equipo]; ad=df[df['AwayTeam']==equipo]; total=len(ld)+len(ad)
@@ -1457,8 +1457,8 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-        # Tabs de mercados (1X2, Doble Oportunidad, Over/Under, Ambos Marcan)
-        t1,t2,t3,t4=st.tabs(["1X2","Doble Oportunidad","Over/Under","Ambos Marcan"])
+        # Tabs de mercados (1X2, Doble Oportunidad, más de/menos de, Ambos Marcan)
+        t1,t2,t3,t4=st.tabs(["1X2","Doble Oportunidad","más de / menos de","Ambos Marcan"])
 
         with t1:
             x1,x2,x3=st.columns(3)
@@ -1490,17 +1490,17 @@ def main():
                 st.caption(f"Local {pron.p_win:.1f}% + Visitante {pron.p_lose:.1f}%")
 
         with t3:
-            ou=mercados['over_under']
-            ois=sorted([(k,v) for k,v in ou.items() if k.startswith('Over')], key=lambda x:float(x[0].split()[1]))
-            uis=sorted([(k,v) for k,v in ou.items() if k.startswith('Under')],key=lambda x:float(x[0].split()[1]))
+            ou=mercados['mas_menos']
+            ois=sorted([(k,v) for k,v in ou.items() if k.startswith('más de')], key=lambda x:float(x[0].split()[-1]))
+            uis=sorted([(k,v) for k,v in ou.items() if k.startswith('menos de')],key=lambda x:float(x[0].split()[-1]))
             co_,cu_=st.columns(2)
             with co_:
-                st.markdown("**Over**")
+                st.markdown("**más de**")
                 for n_,p_ in ois:
                     col_="#2ecc71" if p_>65 else "#e74c3c" if p_<35 else "inherit"
                     st.markdown(f"<span style='color:{col_};'>{n_}: **{p_:.1f}%**</span>",unsafe_allow_html=True)
             with cu_:
-                st.markdown("**Under**")
+                st.markdown("**menos de**")
                 for n_,p_ in uis:
                     col_="#2ecc71" if p_>65 else "#e74c3c" if p_<35 else "inherit"
                     st.markdown(f"<span style='color:{col_};'>{n_}: **{p_:.1f}%**</span>",unsafe_allow_html=True)
@@ -1586,7 +1586,7 @@ def main():
                   'Modelo':pron.modo_modelo,'lambda_Local':round(pron.media_local,3),
                   'lambda_Visitante':round(pron.media_visitante,3),'Prob_Local_%':round(pron.p_win,1),
                   'Prob_Empate_%':round(pron.p_draw,1),'Prob_Visitante_%':round(pron.p_lose,1),
-                  'Over_2.5_%':round(pron.prob_over_25,1),'Ambos_Marcan_%':round(pron.prob_ambos,1),
+                  'más de 2.5_%':round(pron.prob_mas_de_25,1),'Ambos_Marcan_%':round(pron.prob_ambos,1),
                   'Rating':rating,'Backtest_Acc':bt_res.get('accuracy_seguro','N/A') if bt_res else 'N/A'}
             st.download_button("📥 Exportar CSV",pd.DataFrame([data]).to_csv(index=False),
                                file_name=f"pronostico_{local}_vs_{visitante}.csv",
