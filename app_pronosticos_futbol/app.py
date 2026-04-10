@@ -1666,7 +1666,7 @@ def calcular_combinadas_del_dia(
 
     # ── Generador de combinadas por nivel de riesgo ───────────────────────────
 def _gen(pool, cuota_min, max_pool=15):
-        pool = pool[:max_pool]   # limitar para evitar explosión combinatoria
+        pool = pool[:max_pool]
         niveles = {'bajo': [], 'medio': [], 'alto': []}
         if len(pool) < 2:
             return niveles
