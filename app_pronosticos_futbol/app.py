@@ -1665,7 +1665,8 @@ def calcular_combinadas_del_dia(
     pool_1x2     = _pool(value_bets_ord, {'1X2'})                              # mejor apuesta resultado por partido
 
     # ── Generador de combinadas por nivel de riesgo ───────────────────────────
-    def _gen(pool, cuota_min):
+def _gen(pool, cuota_min, max_pool=15):
+        pool = pool[:max_pool]   # limitar para evitar explosión combinatoria
         niveles = {'bajo': [], 'medio': [], 'alto': []}
         if len(pool) < 2:
             return niveles
@@ -1694,10 +1695,9 @@ def calcular_combinadas_del_dia(
             niveles[nv] = niveles[nv][:6]
         return niveles
 
-    cg = _gen(pool_general, cuota_min_combinada)
-    cs = _gen(pool_stats,   1.0)             # cuota mínima baja para stats puras
-    c1 = _gen(pool_1x2,     cuota_min_combinada)
-
+    cg = _gen(pool_general[:15], cuota_min_combinada)
+    cs = _gen(pool_stats[:15],   1.0)
+    c1 = _gen(pool_1x2[:15],     cuota_min_combinada)
     # ── Fusión por nivel (general primero, stats y 1x2 aportan variedad) ─────
     combinadas_finales = {'bajo': [], 'medio': [], 'alto': []}
     for nivel in ('bajo', 'medio', 'alto'):
