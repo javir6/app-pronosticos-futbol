@@ -130,36 +130,88 @@ def mostrar_panel_cambio_password():
 
 
 # ============================================================================
-# PERSISTENCIA DE API KEYS
+# PERSISTENCIA DE API KEYS — SISTEMA DE TOKEN POR USUARIO
+# Cada usuario tiene un token único en la URL (?ut=...). Sus keys se guardan
+# en un archivo personal. Otros usuarios tienen su propio archivo separado.
+# ⚠️ El usuario debe guardar la URL completa (con ?ut=...) para recuperar sus keys.
 # ============================================================================
 
-CONFIG_FILE = "config.json"
+CONFIG_DIR = "user_configs"
 
-def _cargar_config():
-    config = {"odds_api_key": "", "anthropic_api_key": ""}
-    for k in ["ODDS_API_KEY", "ANTHROPIC_API_KEY"]:
-        try:
-            val = st.secrets.get(k, "")
-            if val:
-                config[k.lower()] = val
-        except Exception:
-            pass
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r") as f:
-                saved = _json.load(f)
-            for k in config:
-                if not config[k] and saved.get(k):
-                    config[k] = saved[k]
-        except Exception:
-            pass
-    return config
 
-def _guardar_config(odds_key: str, anthropic_key: str):
-    data = {"odds_api_key": odds_key.strip(), "anthropic_api_key": anthropic_key.strip()}
+def _get_or_create_user_token() -> str:
+    """Obtiene o genera un token único para este usuario vía URL params."""
+    token = st.query_params.get("ut", "")
+    if not token or len(token) < 6:
+        import uuid
+        token = str(uuid.uuid4())[:12]
+        st.query_params["ut"] = token
+    return token
+
+
+def _user_config_path(token: str) -> str:
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    return os.path.join(CONFIG_DIR, f"cfg_{token}.json")
+
+
+def _cargar_keys_usuario() -> dict:
+    """
+    Carga API keys con esta prioridad:
+      1) Archivo personal del usuario (token en URL) — sobreescribe todo
+      2) st.secrets (keys del administrador, base por defecto)
+    """
+    cfg = {"odds_api_key": "", "anthropic_api_key": ""}
+    # Base: admin via secrets
     try:
-        with open(CONFIG_FILE, "w") as f:
-            _json.dump(data, f)
+        for env_k, cfg_k in [("ODDS_API_KEY", "odds_api_key"),
+                              ("ANTHROPIC_API_KEY", "anthropic_api_key")]:
+            v = st.secrets.get(env_k, "")
+            if v:
+                cfg[cfg_k] = v
+    except Exception:
+        pass
+    # Personal del usuario (sobreescribe si tiene las suyas)
+    try:
+        token = _get_or_create_user_token()
+        path = _user_config_path(token)
+        if os.path.exists(path):
+            with open(path) as f:
+                user_cfg = _json.load(f)
+            for k in ["odds_api_key", "anthropic_api_key"]:
+                if user_cfg.get(k):
+                    cfg[k] = user_cfg[k]
+    except Exception:
+        pass
+    return cfg
+
+
+def _guardar_keys_usuario(odds_key: str, anthropic_key: str) -> bool:
+    """Guarda las keys en el archivo personal del usuario."""
+    try:
+        token = _get_or_create_user_token()
+        path = _user_config_path(token)
+        existing = {}
+        if os.path.exists(path):
+            with open(path) as f:
+                existing = _json.load(f)
+        existing.update({
+            "odds_api_key":      odds_key.strip(),
+            "anthropic_api_key": anthropic_key.strip(),
+        })
+        with open(path, "w") as f:
+            _json.dump(existing, f)
+        return True
+    except Exception:
+        return False
+
+
+def _borrar_keys_usuario() -> bool:
+    """Elimina el archivo personal del usuario actual."""
+    try:
+        token = _get_or_create_user_token()
+        path = _user_config_path(token)
+        if os.path.exists(path):
+            os.remove(path)
         return True
     except Exception:
         return False
@@ -722,7 +774,8 @@ def obtener_jornada_quiniela_oficial(equipos_bd):
         if r.status_code==200:
             p=_extraer_partidos_json_selae(r.json())
             if p: pares_raw=p
-    except Exception: pass
+    except Exception:
+        pass
     if not pares_raw:
         try:
             r=requests.get('https://www.loteriasyapuestas.es/es/la-quiniela',headers=hdrs,timeout=15)
@@ -735,9 +788,12 @@ def obtener_jornada_quiniela_oficial(equipos_bd):
                             blob=_json.loads(m.group(1))
                             p=_extraer_partidos_json_selae(blob if isinstance(blob,dict) else {'partidos':blob})
                             if p: pares_raw=p; break
-                        except: continue
-        except Exception: pass
-    if not pares_raw: return None
+                        except:
+                            continue
+        except Exception:
+            pass
+    if not pares_raw:
+        return None
     resultado=[]; no_encontrados=[]
     for par in pares_raw:
         if not (isinstance(par,(list,tuple)) and len(par)==2): continue
@@ -1479,18 +1535,29 @@ def _match_equipo_bd(nombre_api: str, equipos_bd: list, cutoff: float = 0.45):
     return None, 0.0
 
 
+# ============================================================================
+# COMBINADA DEL DÍA — CÁLCULO CON POOLS POR TIPO Y NIVELES DE RIESGO
+# Devuelve (value_bets, combinadas_por_riesgo)
+# combinadas_por_riesgo = {'bajo': [...], 'medio': [...], 'alto': [...]}
+# ============================================================================
+
 def calcular_combinadas_del_dia(
     partidos_hoy: list,
     df_total,
     equipos_bd: list,
-    num_partidos: int = 20,
-    factor_decay: float = 0.003,
-    min_prob_modelo: float = 0.55,
-    min_value_pct:   float = 2.0,
-    cuota_min_combinada: float = 2.0,
-    max_selecciones: int = 4,
+    num_partidos:         int   = 20,
+    factor_decay:         float = 0.003,
+    min_prob_modelo:      float = 0.40,
+    min_value_pct:        float = 0.0,
+    cuota_min_combinada:  float = 1.5,
+    max_selecciones:      int   = 4,
+    mercados_activos:     dict  = None,
 ):
+    if mercados_activos is None:
+        mercados_activos = {'1x2': True, 'totals': True, 'btts': True, 'corners': True}
+
     value_bets = []
+
     for p in partidos_hoy:
         home_bd, sc_h = _match_equipo_bd(p['home'], equipos_bd)
         away_bd, sc_a = _match_equipo_bd(p['away'], equipos_bd)
@@ -1505,65 +1572,155 @@ def calcular_combinadas_del_dia(
                                            num_partidos, factor_decay)
         except Exception:
             continue
-        candidatos = [
-            ('1 (Local)',    pron.p_win  / 100, p['odds_h'], home_bd),
-            ('X (Empate)',   pron.p_draw / 100, p['odds_d'], None),
-            ('2 (Visitante)',pron.p_lose / 100, p['odds_a'], away_bd),
-        ]
-        for mercado, prob_modelo, cuota, _ in candidatos:
-            if cuota <= 1.0:
-                continue
-            prob_implicita = 1.0 / cuota
-            value_pct      = (prob_modelo - prob_implicita) * 100
-            if prob_modelo >= min_prob_modelo and value_pct >= min_value_pct:
-                ev_pct = (prob_modelo * cuota - 1) * 100
-                value_bets.append({
-                    'liga':          p['liga'],
-                    'partido':       f"{p['home']} vs {p['away']}",
-                    'home_bd':       home_bd,
-                    'away_bd':       away_bd,
-                    'mercado':       mercado,
-                    'prob_modelo':   round(prob_modelo * 100, 1),
-                    'prob_impl':     round(prob_implicita * 100, 1),
-                    'value_pct':     round(value_pct, 1),
-                    'cuota':         cuota,
-                    'bookmaker':     p['bookmaker'],
-                    'ev_pct':        round(ev_pct, 1),
-                    'hora':          p['commence_time'].strftime('%H:%M'),
-                    'modo_modelo':   pron.modo_modelo,
-                    'match_score':   round((sc_h + sc_a) / 2, 2),
-                })
-    if not value_bets:
-        return [], []
-    value_bets_ord = sorted(value_bets, key=lambda x: x['ev_pct'], reverse=True)
-    vistos = set()
-    pool = []
-    for vb in value_bets_ord:
-        if vb['partido'] not in vistos:
-            pool.append(vb)
-            vistos.add(vb['partido'])
-    mejores_combinadas = []
-    for n in range(2, min(max_selecciones + 1, len(pool) + 1)):
-        for combo in itertools.combinations(pool, n):
-            cuota_c = 1.0
-            prob_c  = 1.0
-            for s in combo:
-                cuota_c *= s['cuota']
-                prob_c  *= s['prob_modelo'] / 100
-            if cuota_c < cuota_min_combinada:
-                continue
-            ev = (prob_c * cuota_c - 1) * 100
-            mejores_combinadas.append({
-                'selecciones':    list(combo),
-                'n':              n,
-                'cuota_conjunta': round(cuota_c, 2),
-                'prob_conjunta':  round(prob_c  * 100, 2),
-                'ev_pct':         round(ev, 2),
-                'ganancia_1e':    round(cuota_c, 2),
-            })
-    mejores_combinadas.sort(key=lambda x: (x['ev_pct'], x['prob_conjunta']), reverse=True)
-    return value_bets_ord, mejores_combinadas[:10]
 
+        hora      = p['commence_time'].strftime('%H:%M')
+        partido_l = f"{p['home']} vs {p['away']}"
+        modo      = pron.modo_modelo
+
+        def _reg(mercado, tipo, prob_modelo, cuota, bookmaker='', es_estimada=False):
+            if cuota <= 1.01 or prob_modelo <= 0:
+                return
+            if prob_modelo < min_prob_modelo:
+                return
+            prob_impl = 1.0 / cuota
+            value_pct = (prob_modelo - prob_impl) * 100
+            if not es_estimada and value_pct < min_value_pct:
+                return
+            ev_pct = (prob_modelo * cuota - 1) * 100
+            value_bets.append({
+                'liga':        p['liga'],
+                'partido':     partido_l,
+                'home_bd':     home_bd,
+                'away_bd':     away_bd,
+                'mercado':     mercado,
+                'tipo':        tipo,
+                'prob_modelo': round(prob_modelo * 100, 1),
+                'prob_impl':   round(prob_impl   * 100, 1),
+                'value_pct':   round(value_pct, 1),
+                'cuota':       round(cuota, 2),
+                'bookmaker':   bookmaker or p['bookmaker'],
+                'ev_pct':      round(ev_pct, 1),
+                'hora':        hora,
+                'modo_modelo': modo,
+                'match_score': round((sc_h + sc_a) / 2, 2),
+                'cuota_tipo':  'estimada' if es_estimada else 'real',
+            })
+
+        # ── 1X2 (cuotas REALES) ──────────────────────────────────────────────
+        if mercados_activos.get('1x2'):
+            _reg('1 (Local)',     '1X2', pron.p_win  / 100, p['odds_h'])
+            _reg('X (Empate)',    '1X2', pron.p_draw / 100, p['odds_d'])
+            _reg('2 (Visitante)', '1X2', pron.p_lose / 100, p['odds_a'])
+
+        # ── Totals (estimadas) ───────────────────────────────────────────────
+        if mercados_activos.get('totals'):
+            for linea, k in [(1.5, 1), (2.5, 2), (3.5, 3), (4.5, 4)]:
+                po = 1 - poisson.cdf(k, pron.media_total)
+                pu = poisson.cdf(k, pron.media_total)
+                _reg(f'Más de {linea}',   'O/U Goles', po,
+                     round(max(1.1, 1 / max(po, 0.01) * 0.90), 2), '📊 estimada', True)
+                _reg(f'Menos de {linea}', 'O/U Goles', pu,
+                     round(max(1.1, 1 / max(pu, 0.01) * 0.90), 2), '📊 estimada', True)
+
+        # ── BTTS (estimado) ──────────────────────────────────────────────────
+        if mercados_activos.get('btts'):
+            ps = pron.prob_ambos / 100
+            pn = 1 - ps
+            _reg('Ambos Marcan - SI', 'BTTS', ps,
+                 round(max(1.1, 1 / max(ps, 0.01) * 0.90), 2), '📊 estimada', True)
+            _reg('Ambos Marcan - NO', 'BTTS', pn,
+                 round(max(1.1, 1 / max(pn, 0.01) * 0.90), 2), '📊 estimada', True)
+
+        # ── Córners (estimado) ───────────────────────────────────────────────
+        if mercados_activos.get('corners') and pron.corners_total > 0:
+            ct = pron.corners_total
+            for linea, k in [(7.5, 7), (8.5, 8), (9.5, 9), (10.5, 10)]:
+                po = 1 - poisson.cdf(k, ct)
+                pu = poisson.cdf(k, ct)
+                _reg(f'Córners más de {linea}',   'Córners', po,
+                     round(max(1.1, 1 / max(po, 0.01) * 0.90), 2), '📊 estimada', True)
+                _reg(f'Córners menos de {linea}', 'Córners', pu,
+                     round(max(1.1, 1 / max(pu, 0.01) * 0.90), 2), '📊 estimada', True)
+
+    if not value_bets:
+        return [], {'bajo': [], 'medio': [], 'alto': []}
+
+    value_bets_ord = sorted(value_bets, key=lambda x: x['ev_pct'], reverse=True)
+
+    # ── Construcción de pools ─────────────────────────────────────────────────
+    # Se ordena por prob_modelo para que "Más de 1.5 al 85%" gane a "1X2 al 55%"
+    # dentro del mismo partido, favoreciendo diversidad de mercados.
+    def _pool(vbs, tipos=None):
+        seen, res = set(), []
+        for vb in sorted(vbs, key=lambda x: x['prob_modelo'], reverse=True):
+            if tipos and vb['tipo'] not in tipos:
+                continue
+            if vb['partido'] not in seen:
+                res.append(vb)
+                seen.add(vb['partido'])
+        return res
+
+    pool_general = _pool(value_bets_ord)                                       # mejor apuesta de cualquier mercado por partido
+    pool_stats   = _pool(value_bets_ord, {'O/U Goles', 'BTTS', 'Córners'})    # mejor apuesta stats por partido
+    pool_1x2     = _pool(value_bets_ord, {'1X2'})                              # mejor apuesta resultado por partido
+
+    # ── Generador de combinadas por nivel de riesgo ───────────────────────────
+    def _gen(pool, cuota_min):
+        niveles = {'bajo': [], 'medio': [], 'alto': []}
+        if len(pool) < 2:
+            return niveles
+        for n in range(2, min(max_selecciones + 1, len(pool) + 1)):
+            for combo in itertools.combinations(pool, n):
+                cuota_c = prob_c = 1.0
+                for s in combo:
+                    cuota_c *= s['cuota']
+                    prob_c  *= s['prob_modelo'] / 100
+                if cuota_c < cuota_min:
+                    continue
+                ev = (prob_c * cuota_c - 1) * 100
+                e = {
+                    'selecciones':    list(combo),
+                    'n':              n,
+                    'cuota_conjunta': round(cuota_c, 2),
+                    'prob_conjunta':  round(prob_c * 100, 2),
+                    'ev_pct':         round(ev, 2),
+                    'ganancia_1e':    round(cuota_c, 2),
+                }
+                if   prob_c * 100 >= 40: niveles['bajo'].append(e)
+                elif prob_c * 100 >= 20: niveles['medio'].append(e)
+                else:                    niveles['alto'].append(e)
+        for nv in niveles:
+            niveles[nv].sort(key=lambda x: x['ev_pct'], reverse=True)
+            niveles[nv] = niveles[nv][:6]
+        return niveles
+
+    cg = _gen(pool_general, cuota_min_combinada)
+    cs = _gen(pool_stats,   1.0)             # cuota mínima baja para stats puras
+    c1 = _gen(pool_1x2,     cuota_min_combinada)
+
+    # ── Fusión por nivel (general primero, stats y 1x2 aportan variedad) ─────
+    combinadas_finales = {'bajo': [], 'medio': [], 'alto': []}
+    for nivel in ('bajo', 'medio', 'alto'):
+        vistos = set()
+        fuentes = (
+            [(c, 'Mixta')                        for c in cg[nivel]] +
+            [(c, 'Stats (Goles/BTTS/Córners)')   for c in cs[nivel]] +
+            [(c, 'Resultado 1X2')                for c in c1[nivel]]
+        )
+        for combo, etiqueta in fuentes:
+            key = frozenset(s['partido'] for s in combo['selecciones'])
+            if key not in vistos and len(combinadas_finales[nivel]) < 6:
+                combo['tipo_pool'] = etiqueta
+                combinadas_finales[nivel].append(combo)
+                vistos.add(key)
+        combinadas_finales[nivel].sort(key=lambda x: x['ev_pct'], reverse=True)
+
+    return value_bets_ord, combinadas_finales
+
+
+# ============================================================================
+# COMBINADA DEL DÍA — DISPLAY (niveles de riesgo + análisis IA corregido)
+# ============================================================================
 
 def mostrar_tab_combinada_dia(df_total, num_partidos, factor_decay, api_key_odds, api_key_anthropic):
     st.subheader("📅 Combinada del Día — Partidos Reales con Cuotas en Vivo")
@@ -1573,24 +1730,24 @@ def mostrar_tab_combinada_dia(df_total, num_partidos, factor_decay, api_key_odds
             "Regístrate gratis en [theoddsapi.com](https://theoddsapi.com) — 500 solicitudes/mes gratis."
         )
         return
+
     with st.expander("⚙️ Parámetros de filtrado", expanded=False):
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
         with c1:
-            min_prob  = st.slider("Prob. mínima modelo (%)", 50, 75, 55) / 100
-            min_value = st.slider("Value mínimo (%)",        0, 15,  3,  1)
+            min_prob  = st.slider("Prob. mínima modelo (%)", 30, 80, 40) / 100
+            min_value = st.slider("Value mínimo 1X2 (%)", 0, 15, 0, 1)
         with c2:
-            cuota_min = st.slider("Cuota mínima combinada", 1.5, 5.0, 2.0, 0.1)
-            max_sels  = st.slider("Máx. selecciones",       2,   5,   4)
+            cuota_min = st.slider("Cuota mínima combinada", 1.2, 10.0, 1.5, 0.1)
+            max_sels  = st.slider("Máx. selecciones", 2, 5, 4)
         with c3:
-            st.markdown("**ℹ️ Cómo funciona**")
-            st.caption(
-                "• **Prob. modelo**: % mínimo que nuestro modelo Dixon-Coles asigna a la selección.\n"
-                "• **Value mínimo**: diferencia entre prob. modelo y prob. implícita de la casa.\n"
-                "• **Cuota mínima**: la cuota conjunta debe ser ≥ este valor para que salga en la lista."
-            )
-        with c4:
-            st.markdown("**📊 Cuota ≥ 2.0 significa:**")
-            st.info("Por cada **€1** apostado,\nrecibirías **≥ €2** si aciertas\ntodas las selecciones.")
+            st.markdown("**🎯 Mercados a incluir**")
+            inc_1x2     = st.checkbox("📊 1X2 (resultado)",         value=True, key='cdd_1x2')
+            inc_totals  = st.checkbox("⚽ Más/Menos goles",          value=True, key='cdd_totals')
+            inc_btts    = st.checkbox("🥅 Ambos Marcan",             value=True, key='cdd_btts')
+            inc_corners = st.checkbox("🚩 Córners (modelo interno)", value=True, key='cdd_corners')
+            st.caption("1X2 usa cuotas reales de la API. El resto usa cuotas estimadas "
+                       "con margen del 10% (aparecen como *est.*).")
+
     if st.button("🔍 BUSCAR MEJORES COMBINADAS DE HOY", use_container_width=True, type="primary"):
         equipos_bd = sorted(set(df_total['HomeTeam'].unique()) | set(df_total['AwayTeam'].unique()))
         with st.spinner("📡 Descargando partidos y cuotas de hoy..."):
@@ -1599,60 +1756,71 @@ def mostrar_tab_combinada_dia(df_total, num_partidos, factor_decay, api_key_odds
             st.error("❌ No se pudieron obtener partidos. Verifica la API Key o inténtalo más tarde.")
             return
         st.success(f"✅ {len(partidos_hoy)} partidos encontrados para las próximas 24h")
-        with st.spinner("🧮 Cruzando con modelo Dixon-Coles y buscando value bets..."):
+        with st.spinner("🧮 Cruzando con modelo Dixon-Coles y generando combinadas..."):
             vbs, combis = calcular_combinadas_del_dia(
                 partidos_hoy, df_total, equipos_bd,
                 num_partidos, factor_decay,
-                min_prob, min_value, cuota_min, max_sels
+                min_prob, min_value, cuota_min, max_sels,
+                mercados_activos={'1x2': inc_1x2, 'totals': inc_totals,
+                                  'btts': inc_btts, 'corners': inc_corners}
             )
         st.session_state['cdd_partidos_hoy'] = partidos_hoy
         st.session_state['cdd_value_bets']   = vbs
         st.session_state['cdd_combinadas']   = combis
         st.session_state['cdd_cuota_min']    = cuota_min
+        st.session_state.pop('cdd_analisis_ia', None)   # limpiar análisis anterior
+
     if 'cdd_combinadas' not in st.session_state:
         return
+
     partidos_hoy = st.session_state['cdd_partidos_hoy']
     vbs          = st.session_state['cdd_value_bets']
-    combis       = st.session_state['cdd_combinadas']
+    combis       = st.session_state['cdd_combinadas']   # {'bajo': [...], 'medio': [...], 'alto': [...]}
+
+    # ── Tabla de partidos descargados ────────────────────────────────────────
     st.divider()
-    with st.expander(f"📋 Todos los partidos de hoy descargados ({len(partidos_hoy)})", expanded=False):
+    with st.expander(f"📋 Todos los partidos descargados ({len(partidos_hoy)})", expanded=False):
         rows = []
         for p in partidos_hoy:
             margen = round((1/p['odds_h'] + 1/p['odds_d'] + 1/p['odds_a'] - 1) * 100, 1)
-            rows.append({
-                'Liga':     p['liga'],
-                'Hora':     p['commence_time'].strftime('%H:%M'),
-                'Local':    p['home'],
-                'Visitante':p['away'],
-                'C.Local':  p['odds_h'],
-                'C.Empate': p['odds_d'],
-                'C.Visit.': p['odds_a'],
-                'Margen Casa %': margen,
-                'Bookmaker': p['bookmaker'],
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, height=320)
+            rows.append({'Liga': p['liga'], 'Hora': p['commence_time'].strftime('%H:%M'),
+                         'Local': p['home'], 'Visitante': p['away'],
+                         'C.Local': p['odds_h'], 'C.Empate': p['odds_d'], 'C.Visit.': p['odds_a'],
+                         'Margen Casa %': margen, 'Bookmaker': p['bookmaker']})
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, height=300)
+
+    # ── Value Bets ───────────────────────────────────────────────────────────
     st.divider()
     st.subheader(f"💰 Value Bets detectadas: {len(vbs)}")
+    TIPO_ICON = {'1X2': '📊', 'O/U Goles': '⚽', 'BTTS': '🥅', 'Córners': '🚩'}
     if not vbs:
         st.info("No se detectaron value bets con los parámetros actuales. Prueba a bajar los umbrales.")
     else:
         for vb in vbs[:15]:
+            es_est    = vb.get('cuota_tipo') == 'estimada'
+            vp        = vb['value_pct']
+            vp_str    = f"+{vp:.1f}%" if vp > 0 else f"{vp:.1f}%"
+            vp_col    = "#2ecc71" if vp > 0 else "#888"
+            vp_badge  = "🔥 FUERTE" if vp > 10 else "💰 VALUE" if vp > 5 else ("📊 estimada" if es_est else "LEVE")
             ev_col    = "#2ecc71" if vb['ev_pct'] > 10 else "#f1c40f" if vb['ev_pct'] > 0 else "#e74c3c"
-            val_badge = "🔥 FUERTE" if vb['value_pct'] > 10 else "💰 VALUE" if vb['value_pct'] > 5 else "📊 LEVE"
+            tipo_icon = TIPO_ICON.get(vb['tipo'], '📌')
+            cuota_lbl = "est." if es_est else "real"
             st.markdown(f"""
             <div style='background:#1a1a2e;border:1px solid #415a77;border-radius:10px;
                         padding:12px 16px;margin:6px 0;display:flex;
                         justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;'>
                 <div>
-                    <span style='font-size:11px;color:#888;'>{vb['liga']} · {vb['hora']}</span><br>
+                    <span style='font-size:11px;color:#888;'>
+                        {vb['liga']} · {vb['hora']} · {tipo_icon} {vb['tipo']}
+                    </span><br>
                     <span style='font-size:16px;font-weight:bold;'>{vb['partido']}</span><br>
                     <span style='font-size:14px;color:#4fc3f7;font-weight:bold;'>→ {vb['mercado']}</span>
                     <span style='font-size:11px;color:#888;margin-left:8px;'>[{vb['modo_modelo']}]</span>
                 </div>
-                <div style='display:flex;gap:16px;flex-wrap:wrap;'>
+                <div style='display:flex;gap:14px;flex-wrap:wrap;'>
                     <div style='text-align:center;'>
                         <div style='font-size:20px;font-weight:900;color:#e0e0e0;'>{vb['cuota']}</div>
-                        <div style='font-size:10px;color:#888;'>Cuota real</div>
+                        <div style='font-size:10px;color:#888;'>Cuota {cuota_lbl}</div>
                     </div>
                     <div style='text-align:center;'>
                         <div style='font-size:20px;font-weight:900;color:#4fc3f7;'>{vb['prob_modelo']}%</div>
@@ -1663,8 +1831,8 @@ def mostrar_tab_combinada_dia(df_total, num_partidos, factor_decay, api_key_odds
                         <div style='font-size:10px;color:#888;'>Casa</div>
                     </div>
                     <div style='text-align:center;'>
-                        <div style='font-size:20px;font-weight:900;color:#2ecc71;'>+{vb['value_pct']}%</div>
-                        <div style='font-size:10px;color:#888;'>Value {val_badge}</div>
+                        <div style='font-size:20px;font-weight:900;color:{vp_col};'>{vp_str}</div>
+                        <div style='font-size:10px;color:#888;'>{vp_badge}</div>
                     </div>
                     <div style='text-align:center;'>
                         <div style='font-size:20px;font-weight:900;color:{ev_col};'>{vb['ev_pct']:+.1f}%</div>
@@ -1673,110 +1841,171 @@ def mostrar_tab_combinada_dia(df_total, num_partidos, factor_decay, api_key_odds
                 </div>
             </div>
             """, unsafe_allow_html=True)
+
+    # ── Combinadas por nivel de riesgo ───────────────────────────────────────
     st.divider()
-    st.subheader(f"🏆 Mejores Combinadas (cuota conjunta ≥ {st.session_state.get('cdd_cuota_min', 2.0):.1f})")
-    if not combis:
+    total_combis = sum(len(v) for v in combis.values())
+    st.subheader("🏆 Mejores Combinadas por Nivel de Riesgo")
+
+    if total_combis == 0:
         st.warning(
             "⚠️ No se encontró ninguna combinada que cumpla los criterios.\n\n"
-            "**Posibles causas:**\n"
-            "- Pocos equipos de los partidos de hoy están en nuestra base de datos "
-            "(normalmente pasa con ligas menos comunes).\n"
-            "- Los umbrales son muy estrictos → prueba a bajar *Prob. mínima modelo* o *Value mínimo*."
+            "Posibles causas: pocos equipos de hoy mapeados en la BD, o umbrales demasiado estrictos. "
+            "Prueba a reducir *Prob. mínima modelo* o *Cuota mínima combinada*."
         )
     else:
-        for i, combo in enumerate(combis[:5]):
-            nivel  = "BAJO" if combo['prob_conjunta'] > 35 else "MEDIO" if combo['prob_conjunta'] > 18 else "ALTO"
-            emoji_r= "🟢" if nivel == "BAJO" else "🟡" if nivel == "MEDIO" else "🔴"
-            st.markdown(f"""
-            <div class="combo-winner" style='margin-bottom:20px;'>
-                <div style='font-size:13px;opacity:0.7;margin-bottom:8px;'>
-                    COMBINADA #{i+1} · {combo['n']} SELECCIONES
-                </div>
-                <div style='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:15px;'>
-                    <div class="combo-stat">
-                        <div style='font-size:28px;font-weight:900;color:#e94560;'>{combo['cuota_conjunta']}x</div>
-                        <div style='font-size:11px;opacity:0.7;'>Cuota conjunta</div>
-                    </div>
-                    <div class="combo-stat">
-                        <div style='font-size:28px;font-weight:900;color:#4fc3f7;'>€{combo['ganancia_1e']:.2f}</div>
-                        <div style='font-size:11px;opacity:0.7;'>Por cada €1</div>
-                    </div>
-                    <div class="combo-stat">
-                        <div style='font-size:28px;font-weight:900;color:#f1c40f;'>{combo['prob_conjunta']}%</div>
-                        <div style='font-size:11px;opacity:0.7;'>Prob. conjunta</div>
-                    </div>
-                    <div class="combo-stat">
-                        <div style='font-size:28px;font-weight:900;color:{'#2ecc71' if combo['ev_pct'] > 0 else '#e74c3c'};'>{'+' if combo['ev_pct'] > 0 else ''}{combo['ev_pct']}%</div>
-                        <div style='font-size:11px;opacity:0.7;'>Valor Esperado</div>
-                    </div>
-                    <div class="combo-stat">
-                        <div style='font-size:28px;'>{emoji_r}</div>
-                        <div style='font-size:11px;opacity:0.7;'>Riesgo {nivel}</div>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-            for s in combo['selecciones']:
-                pp   = s['prob_modelo']
-                cp   = "#2ecc71" if pp >= 65 else "#f1c40f" if pp >= 55 else "#e74c3c"
-                val_ = f"+{s['value_pct']}% value"
+        tab_bajo, tab_medio, tab_alto = st.tabs([
+            f"🟢 Riesgo Bajo — prob > 40%  ({len(combis['bajo'])} combis)",
+            f"🟡 Riesgo Medio — 20–40%  ({len(combis['medio'])} combis)",
+            f"🔴 Riesgo Alto — prob < 20%  ({len(combis['alto'])} combis)",
+        ])
+
+        def _render_nivel(combis_nivel, emoji_r, nivel_str):
+            if not combis_nivel:
+                st.info(f"No hay combinadas de {nivel_str.lower()} con los parámetros actuales. "
+                        "Prueba a ajustar los filtros.")
+                return
+            for i, combo in enumerate(combis_nivel):
+                tipo_pool = combo.get('tipo_pool', '')
                 st.markdown(f"""
-                <div class="combo-partido">
-                    <span style='font-size:11px;opacity:0.6;'>{s['liga']} · {s['hora']}</span><br>
-                    <span style='font-size:16px;font-weight:700;'>{s['partido']}</span><br>
-                    <span style='color:#4fc3f7;font-weight:bold;'>→ {s['mercado']}</span>
-                    <span style='margin-left:12px;color:{cp};font-weight:bold;'>{pp}%</span>
-                    <span style='margin-left:8px;color:#888;font-size:12px;'>cuota {s['cuota']}</span>
-                    <span style='margin-left:8px;color:#2ecc71;font-size:12px;'>{val_}</span>
-                    <span style='margin-left:8px;color:#555;font-size:11px;'>[{s['bookmaker']}]</span>
-                </div>
+                <div class="combo-winner" style='margin-bottom:18px;'>
+                    <div style='font-size:12px;opacity:0.6;margin-bottom:8px;'>
+                        {emoji_r} {nivel_str.upper()} · COMBINADA #{i+1} · {combo['n']} SELS.
+                        <span style='background:#2a2a3e;border-radius:4px;padding:2px 8px;
+                                     margin-left:8px;font-size:11px;'>{tipo_pool}</span>
+                    </div>
+                    <div style='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;'>
+                        <div class="combo-stat">
+                            <div style='font-size:26px;font-weight:900;color:#e94560;'>{combo['cuota_conjunta']}x</div>
+                            <div style='font-size:11px;opacity:0.7;'>Cuota conjunta</div>
+                        </div>
+                        <div class="combo-stat">
+                            <div style='font-size:26px;font-weight:900;color:#4fc3f7;'>€{combo['ganancia_1e']:.2f}</div>
+                            <div style='font-size:11px;opacity:0.7;'>Por cada €1</div>
+                        </div>
+                        <div class="combo-stat">
+                            <div style='font-size:26px;font-weight:900;color:#f1c40f;'>{combo['prob_conjunta']}%</div>
+                            <div style='font-size:11px;opacity:0.7;'>Prob. conjunta</div>
+                        </div>
+                        <div class="combo-stat">
+                            <div style='font-size:26px;font-weight:900;
+                                        color:{"#2ecc71" if combo["ev_pct"]>0 else "#e74c3c"};'>
+                                {'+' if combo['ev_pct']>0 else ''}{combo['ev_pct']}%
+                            </div>
+                            <div style='font-size:11px;opacity:0.7;'>Valor Esperado</div>
+                        </div>
+                        <div class="combo-stat">
+                            <div style='font-size:26px;'>{emoji_r}</div>
+                            <div style='font-size:11px;opacity:0.7;'>Riesgo</div>
+                        </div>
+                    </div>
                 """, unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-        if combis and api_key_anthropic and api_key_anthropic.strip():
-            st.divider()
-            st.markdown("### 🤖 Análisis IA de la Combinada #1")
-            if st.button("🤖 Generar análisis con Claude", use_container_width=True):
-                mejor = combis[0]
+                for s in combo['selecciones']:
+                    pp        = s['prob_modelo']
+                    cp        = "#2ecc71" if pp >= 65 else "#f1c40f" if pp >= 52 else "#e74c3c"
+                    tipo_icon = TIPO_ICON.get(s['tipo'], '📌')
+                    cuota_lbl = "est." if s.get('cuota_tipo') == 'estimada' else "real"
+                    vp_s      = s['value_pct']
+                    vp_info   = (f"<span style='color:#2ecc71;font-size:12px;'>+{vp_s}% value</span>"
+                                 if vp_s > 0 else
+                                 f"<span style='color:#888;font-size:12px;'>cuota {cuota_lbl}</span>")
+                    st.markdown(f"""
+                    <div class="combo-partido">
+                        <span style='font-size:11px;opacity:0.6;'>
+                            {s['liga']} · {s['hora']} · {tipo_icon} {s['tipo']}
+                        </span><br>
+                        <span style='font-size:15px;font-weight:700;'>{s['partido']}</span><br>
+                        <span style='color:#4fc3f7;font-weight:bold;'>→ {s['mercado']}</span>
+                        <span style='margin-left:10px;color:{cp};font-weight:bold;'>{pp}%</span>
+                        <span style='margin-left:8px;color:#888;font-size:12px;'>
+                            cuota {s['cuota']} ({cuota_lbl})
+                        </span>
+                        <span style='margin-left:8px;'>{vp_info}</span>
+                        <span style='margin-left:8px;color:#555;font-size:11px;'>[{s['bookmaker']}]</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+
+        with tab_bajo:
+            _render_nivel(combis['bajo'],  '🟢', 'Riesgo Bajo')
+        with tab_medio:
+            _render_nivel(combis['medio'], '🟡', 'Riesgo Medio')
+        with tab_alto:
+            _render_nivel(combis['alto'],  '🔴', 'Riesgo Alto')
+
+    # ── Análisis IA ──────────────────────────────────────────────────────────
+    if api_key_anthropic and api_key_anthropic.strip() and total_combis > 0:
+        st.divider()
+        st.markdown("### 🤖 Análisis IA con Claude")
+
+        opciones_disponibles = {}
+        if combis.get('bajo'):  opciones_disponibles['🟢 Mejor combinada Riesgo Bajo']  = combis['bajo'][0]
+        if combis.get('medio'): opciones_disponibles['🟡 Mejor combinada Riesgo Medio'] = combis['medio'][0]
+        if combis.get('alto'):  opciones_disponibles['🔴 Mejor combinada Riesgo Alto']  = combis['alto'][0]
+
+        if opciones_disponibles:
+            sel_nivel = st.selectbox(
+                "¿Qué combinada analizar?",
+                list(opciones_disponibles.keys()),
+                key='cdd_nivel_analisis'
+            )
+
+            if st.button("🤖 Generar análisis con Claude", use_container_width=True, key='cdd_btn_ia'):
+                mejor = opciones_disponibles[sel_nivel]
                 rs = "\n".join(
                     f"- {s['partido']}: {s['mercado']} | prob. modelo {s['prob_modelo']}% "
-                    f"| cuota {s['cuota']} | value +{s['value_pct']}%"
+                    f"| cuota {s['cuota']} ({'real' if s.get('cuota_tipo')=='real' else 'estimada'}) "
+                    f"| EV {s['ev_pct']:+.1f}%"
                     for s in mejor['selecciones']
                 )
                 prompt = (
                     f"Eres un analista experto en apuestas deportivas.\n\n"
-                    f"COMBINADA DEL DÍA:\n{rs}\n\n"
+                    f"COMBINADA DEL DÍA ({sel_nivel}):\n{rs}\n\n"
                     f"Estadísticas: {mejor['n']} selecciones, cuota conjunta {mejor['cuota_conjunta']}x, "
-                    f"prob. conjunta {mejor['prob_conjunta']}%, EV {mejor['ev_pct']}%.\n\n"
-                    f"Proporciona un análisis experto breve (máx 180 palabras): justificación de cada selección "
-                    f"con base en el valor detectado, nivel de confianza global, gestión de bankroll recomendada "
-                    f"y advertencias honestas sobre los riesgos. En español, sin markdown."
+                    f"prob. conjunta {mejor['prob_conjunta']}%, EV {mejor['ev_pct']:+.1f}%.\n\n"
+                    f"Proporciona un análisis experto breve (máx 180 palabras): justificación de cada "
+                    f"selección con base en el modelo estadístico, nivel de confianza global, gestión "
+                    f"de bankroll recomendada y advertencias honestas sobre los riesgos. "
+                    f"En español, sin markdown."
                 )
-                try:
-                    r = requests.post(
-                        "https://api.anthropic.com/v1/messages",
-                        headers={"Content-Type": "application/json",
-                                 "x-api-key": api_key_anthropic,
-                                 "anthropic-version": "2023-06-01"},
-                        json={"model": "claude-sonnet-4-20250514", "max_tokens": 500,
-                              "messages": [{"role": "user", "content": prompt}]},
-                        timeout=30
-                    )
-                    if r.status_code == 200:
-                        texto = r.json()['content'][0]['text']
-                        st.markdown(f"""<div class="ia-explicacion">
-                            <span class="ia-badge">🤖 Claude AI</span>
-                            <p style="margin:0;white-space:pre-line;">{texto}</p>
-                        </div>""", unsafe_allow_html=True)
-                except Exception as e:
-                    st.error(f"Error llamando a Claude: {e}")
+                with st.spinner("🤖 Consultando a Claude..."):
+                    try:
+                        r = requests.post(
+                            "https://api.anthropic.com/v1/messages",
+                            headers={"Content-Type": "application/json",
+                                     "x-api-key": api_key_anthropic,
+                                     "anthropic-version": "2023-06-01"},
+                            json={"model": "claude-sonnet-4-20250514", "max_tokens": 600,
+                                  "messages": [{"role": "user", "content": prompt}]},
+                            timeout=30
+                        )
+                        if r.status_code == 200:
+                            texto = r.json()['content'][0]['text']
+                            st.session_state['cdd_analisis_ia'] = {
+                                'texto': texto, 'nivel': sel_nivel
+                            }
+                        else:
+                            st.error(f"❌ Error API Claude {r.status_code}: {r.text[:300]}")
+                    except Exception as e:
+                        st.error(f"❌ Error conectando con Claude: {e}")
+
+            # Mostrar resultado guardado en session_state (persiste entre reruns)
+            if 'cdd_analisis_ia' in st.session_state:
+                ai_data = st.session_state['cdd_analisis_ia']
+                st.markdown(f"""
+                <div class="ia-explicacion">
+                    <span class="ia-badge">🤖 Claude AI · {ai_data['nivel']}</span>
+                    <p style="margin:10px 0 0 0;white-space:pre-line;">{ai_data['texto']}</p>
+                </div>""", unsafe_allow_html=True)
+
     st.divider()
     st.markdown("""
     <div style='background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:12px 16px;
                 font-size:12px;color:#888;'>
-        ⚠️ <b>Aviso legal:</b> Este módulo es exclusivamente informativo. Una cuota combinada ≥ 2.0 
-        significa que <b>si aciertas todas las selecciones</b> recuperas el doble de lo apostado, 
-        pero no garantiza ningún resultado. El value bet indica que nuestro modelo estima una 
-        probabilidad superior a la que refleja la cuota de la casa — no una certeza. 
-        Juega siempre con responsabilidad.
+        ⚠️ <b>Aviso legal:</b> Módulo exclusivamente informativo. Las cuotas marcadas como
+        <i>est.</i> son estimaciones internas con margen del 10% — no son cuotas reales de
+        ninguna casa de apuestas. El valor esperado positivo no garantiza beneficio en ninguna
+        apuesta individual. Juega siempre con responsabilidad.
     </div>
     """, unsafe_allow_html=True)
 
@@ -1813,11 +2042,14 @@ def main():
                                 help="Mayor = más peso a partidos recientes")
         st.divider()
         st.subheader("🔑 APIs")
+
+        # ── Carga inicial de keys (solo una vez por sesión) ──────────────────
         if 'config_cargado' not in st.session_state:
-            cfg = _cargar_config()
+            cfg = _cargar_keys_usuario()
             st.session_state['odds_api_key']      = cfg.get('odds_api_key', '')
             st.session_state['anthropic_api_key'] = cfg.get('anthropic_api_key', '')
             st.session_state['config_cargado']    = True
+
         odds_input = st.text_input(
             "The Odds API Key",
             value=st.session_state.get('odds_api_key', ''),
@@ -1832,27 +2064,42 @@ def main():
             help="Para análisis IA en combinadas",
             key="anth_key_input"
         )
+
+        # Info del sistema de tokens
+        token_actual = _get_or_create_user_token()
+        st.caption(
+            f"🔒 Tus keys están vinculadas a tu perfil personal "
+            f"(token: `{token_actual[:8]}…`). "
+            f"**Guarda la URL de esta página** (con el parámetro `?ut=...`) "
+            f"para recuperarlas la próxima vez. "
+            f"Cada usuario tiene su propio perfil separado."
+        )
+
         col_save, col_clear = st.columns(2)
         with col_save:
             if st.button("💾 Guardar keys", use_container_width=True, key="save_keys_btn"):
                 st.session_state['odds_api_key']      = odds_input.strip()
                 st.session_state['anthropic_api_key'] = anth_input.strip()
-                ok = _guardar_config(odds_input, anth_input)
+                ok = _guardar_keys_usuario(odds_input, anth_input)
                 if ok:
-                    st.success("✅ Keys guardadas")
+                    st.success("✅ Keys guardadas en tu perfil")
                 else:
-                    st.warning("⚠️ No se pudo escribir config.json (Streamlit Cloud). "
-                               "Usa st.secrets para persistencia permanente en Cloud.")
+                    st.warning("⚠️ Guardadas solo en sesión (error de escritura)")
         with col_clear:
             if st.button("🗑️ Borrar keys", use_container_width=True, key="clear_keys_btn"):
                 st.session_state['odds_api_key']      = ''
                 st.session_state['anthropic_api_key'] = ''
-                _guardar_config('', '')
+                _borrar_keys_usuario()
                 st.rerun()
+
         api_key_odds      = st.session_state.get('odds_api_key', '')
         api_key_anthropic = st.session_state.get('anthropic_api_key', '')
-        if api_key_odds:      st.success("⚡ Odds API configurada ✓")
-        if api_key_anthropic: st.success("🤖 Claude API configurada ✓")
+
+        if api_key_odds:
+            st.success("⚡ Odds API configurada ✓")
+        if api_key_anthropic:
+            st.success("🤖 Claude API configurada ✓")
+
         st.divider()
         st.header("⭐ FAVORITOS")
         nuevo=st.selectbox("Añadir favorito",equipos,key='nuevo_fav')
