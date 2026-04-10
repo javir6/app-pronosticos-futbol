@@ -1558,7 +1558,7 @@ def calcular_combinadas_del_dia(
 
     value_bets = []
 
-    for p in partidos_hoy:
+    for p in partidos_hoy[:50]:
         home_bd, sc_h = _match_equipo_bd(p['home'], equipos_bd)
         away_bd, sc_a = _match_equipo_bd(p['away'], equipos_bd)
         if home_bd is None or away_bd is None or home_bd == away_bd:
@@ -1665,8 +1665,7 @@ def calcular_combinadas_del_dia(
     pool_1x2     = _pool(value_bets_ord, {'1X2'})                              # mejor apuesta resultado por partido
 
     # ── Generador de combinadas por nivel de riesgo ───────────────────────────
-def _gen(pool, cuota_min, max_pool=15):
-        pool = pool[:max_pool]
+    def _gen(pool, cuota_min):
         niveles = {'bajo': [], 'medio': [], 'alto': []}
         if len(pool) < 2:
             return niveles
@@ -1695,9 +1694,10 @@ def _gen(pool, cuota_min, max_pool=15):
             niveles[nv] = niveles[nv][:6]
         return niveles
 
-    cg = _gen(pool_general[:15], cuota_min_combinada)
-    cs = _gen(pool_stats[:15],   1.0)
-    c1 = _gen(pool_1x2[:15],     cuota_min_combinada)
+    cg = _gen(pool_general, cuota_min_combinada)
+    cs = _gen(pool_stats,   1.0)
+    c1 = _gen(pool_1x2,     cuota_min_combinada)
+
     # ── Fusión por nivel (general primero, stats y 1x2 aportan variedad) ─────
     combinadas_finales = {'bajo': [], 'medio': [], 'alto': []}
     for nivel in ('bajo', 'medio', 'alto'):
@@ -1756,6 +1756,8 @@ def mostrar_tab_combinada_dia(df_total, num_partidos, factor_decay, api_key_odds
             st.error("❌ No se pudieron obtener partidos. Verifica la API Key o inténtalo más tarde.")
             return
         st.success(f"✅ {len(partidos_hoy)} partidos encontrados para las próximas 24h")
+        st.info(f"⚙️ Analizando hasta 50 partidos con Dixon-Coles...")
+        pb_cdd = st.progress(0)
         with st.spinner("🧮 Cruzando con modelo Dixon-Coles y generando combinadas..."):
             vbs, combis = calcular_combinadas_del_dia(
                 partidos_hoy, df_total, equipos_bd,
