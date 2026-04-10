@@ -1650,10 +1650,14 @@ def calcular_combinadas_del_dia(
     # ── Construcción de pools ─────────────────────────────────────────────────
     # Se ordena por prob_modelo para que "Más de 1.5 al 85%" gane a "1X2 al 55%"
     # dentro del mismo partido, favoreciendo diversidad de mercados.
-    def _pool(vbs, tipos=None):
+    def _pool(vbs, tipos=None, max_prob=85):
         seen, res = set(), []
-        for vb in sorted(vbs, key=lambda x: x['prob_modelo'], reverse=True):
+        for vb in sorted(vbs, key=lambda x: x['ev_pct'], reverse=True):
             if tipos and vb['tipo'] not in tipos:
+                continue
+            if vb['tipo'] == '1X2' and vb['prob_modelo'] > max_prob:
+                continue
+            if vb['prob_modelo'] > 93:
                 continue
             if vb['partido'] not in seen:
                 res.append(vb)
