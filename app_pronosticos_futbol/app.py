@@ -1419,6 +1419,25 @@ SPORTS_ODDS_API_FALLBACK = [
     ('soccer_south_africa_premier_division', 'PSL Sudáfrica'),
 ]
 
+# ── Conjuntos de claves por región ───────────────────────────────────────────
+LIGAS_EUROPEAS_KEYS = {
+    'soccer_spain_la_liga', 'soccer_epl', 'soccer_germany_bundesliga',
+    'soccer_italy_serie_a', 'soccer_france_ligue_one', 'soccer_portugal_primeira_liga',
+    'soccer_netherlands_eredivisie', 'soccer_belgium_first_div', 'soccer_turkey_super_league',
+    'soccer_greece_super_league', 'soccer_scotland_premiership', 'soccer_austria_bundesliga',
+    'soccer_switzerland_superleague', 'soccer_denmark_superliga', 'soccer_sweden_allsvenskan',
+    'soccer_norway_eliteserien', 'soccer_finland_veikkausliiga', 'soccer_czech_republic_fortuna_liga',
+    'soccer_poland_ekstraklasa', 'soccer_russia_premier_league', 'soccer_ukraine_premier_league',
+    'soccer_croatia_hnl', 'soccer_romania_liga_1', 'soccer_hungary_nb_i',
+    'soccer_serbia_super_liga', 'soccer_bulgaria_first_league', 'soccer_slovakia_super_liga',
+    'soccer_slovenia_prvaliga',
+}
+
+LIGAS_AMERICANAS_KEYS = {
+    'soccer_usa_mls', 'soccer_brazil_campeonato', 'soccer_argentina_primera_division',
+    'soccer_mexico_ligamx', 'soccer_chile_primera_division', 'soccer_colombia_primera_a',
+}
+
 @st.cache_data(ttl=3600)
 def cargar_ligas_disponibles_api(api_key: str):
     if not api_key or not api_key.strip():
@@ -1446,10 +1465,15 @@ def cargar_ligas_disponibles_api(api_key: str):
 # ============================================================================
 
 @st.cache_data(ttl=300)
-def obtener_partidos_hoy_odds_api(api_key: str):
+def obtener_partidos_hoy_odds_api(api_key: str, region: str = 'todo'):
     if not api_key or not api_key.strip():
         return []
     ligas_disponibles = cargar_ligas_disponibles_api(api_key)
+    if region == 'europa':
+        ligas_disponibles = [(k, n) for k, n in ligas_disponibles if k in LIGAS_EUROPEAS_KEYS]
+    elif region == 'america':
+        ligas_disponibles = [(k, n) for k, n in ligas_disponibles if k in LIGAS_AMERICANAS_KEYS]
+    # 'todo' → sin filtro, se usan todas las ligas disponibles
     partidos = []
     now = datetime.utcnow()
     errores = 0
@@ -1752,10 +1776,37 @@ def mostrar_tab_combinada_dia(df_total, num_partidos, factor_decay, api_key_odds
             st.caption("1X2 usa cuotas reales de la API. El resto usa cuotas estimadas "
                        "con margen del 10% (aparecen como *est.*).")
 
+    # ── Selector de región ───────────────────────────────────────────────────
+    st.markdown("### 🌍 Región de ligas")
+    if 'cdd_region' not in st.session_state:
+        st.session_state['cdd_region'] = 'europa'
+
+    col_r1, col_r2, col_r3 = st.columns(3)
+    with col_r1:
+        if st.button("🇪🇺 Ligas Europeas", use_container_width=True,
+                     type="primary" if st.session_state['cdd_region'] == 'europa' else "secondary",
+                     key='btn_region_europa'):
+            st.session_state['cdd_region'] = 'europa'
+            st.rerun()
+    with col_r2:
+        if st.button("🌎 Ligas Americanas", use_container_width=True,
+                     type="primary" if st.session_state['cdd_region'] == 'america' else "secondary",
+                     key='btn_region_america'):
+            st.session_state['cdd_region'] = 'america'
+            st.rerun()
+    with col_r3:
+        if st.button("🌐 Todo el mundo", use_container_width=True,
+                     type="primary" if st.session_state['cdd_region'] == 'todo' else "secondary",
+                     key='btn_region_todo'):
+            st.session_state['cdd_region'] = 'todo'
+            st.rerun()
+
+    region_code = st.session_state['cdd_region']
+
     if st.button("🔍 BUSCAR MEJORES COMBINADAS DE HOY", use_container_width=True, type="primary"):
         equipos_bd = sorted(set(df_total['HomeTeam'].unique()) | set(df_total['AwayTeam'].unique()))
         with st.spinner("📡 Descargando partidos y cuotas de hoy..."):
-            partidos_hoy = obtener_partidos_hoy_odds_api(api_key_odds)
+            partidos_hoy = obtener_partidos_hoy_odds_api(api_key_odds, region_code)
         if not partidos_hoy:
             st.error("❌ No se pudieron obtener partidos. Verifica la API Key o inténtalo más tarde.")
             return
