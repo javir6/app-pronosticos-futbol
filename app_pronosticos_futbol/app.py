@@ -10,6 +10,7 @@ import re
 import itertools
 import warnings
 import json as _json
+import base64 as _b64   # ← añadido
 from io import StringIO
 from datetime import datetime
 from difflib import get_close_matches
@@ -1990,70 +1991,191 @@ def mostrar_tab_combinada_dia(df_total, num_partidos, factor_decay, api_key_odds
         with tab_alto:
             _render_nivel(combis['alto'],  '🔴', 'Riesgo Alto')
 
-    # ── Análisis IA ──────────────────────────────────────────────────────────
-    if api_key_anthropic and api_key_anthropic.strip() and total_combis > 0:
+    # ── Análisis Estadístico de Combinada ────────────────────────────────────
+    if total_combis > 0:
         st.divider()
-        st.markdown("### 🤖 Análisis IA con Claude")
+        st.markdown("### 📊 Análisis Estadístico de la Combinada")
+        st.caption("Selecciona una combinada para ver el desglose completo partido a partido: "
+                   "goles esperados, líneas Over/Under, Ambos Marcan y córners.")
 
-        opciones_disponibles = {}
-        if combis.get('bajo'):  opciones_disponibles['🟢 Mejor combinada Riesgo Bajo']  = combis['bajo'][0]
-        if combis.get('medio'): opciones_disponibles['🟡 Mejor combinada Riesgo Medio'] = combis['medio'][0]
-        if combis.get('alto'):  opciones_disponibles['🔴 Mejor combinada Riesgo Alto']  = combis['alto'][0]
+        # Construir opciones disponibles con etiquetas
+        opciones_analisis = {}
+        for nivel, emoji, label in [('bajo', '🟢', 'Riesgo Bajo'), ('medio', '🟡', 'Riesgo Medio'), ('alto', '🔴', 'Riesgo Alto')]:
+            for idx, combo in enumerate(combis.get(nivel, [])[:3]):
+                key = f"{emoji} {label} #{idx+1} — {combo['n']} sels. | {combo['cuota_conjunta']}x | EV {combo['ev_pct']:+.1f}%"
+                opciones_analisis[key] = combo
 
-        if opciones_disponibles:
-            sel_nivel = st.selectbox(
-                "¿Qué combinada analizar?",
-                list(opciones_disponibles.keys()),
-                key='cdd_nivel_analisis'
+        if opciones_analisis:
+            sel_combo_key = st.selectbox(
+                "¿Qué combinada quieres analizar?",
+                list(opciones_analisis.keys()),
+                key='cdd_sel_analisis'
             )
 
-            if st.button("🤖 Generar análisis con Claude", use_container_width=True, key='cdd_btn_ia'):
-                mejor = opciones_disponibles[sel_nivel]
-                rs = "\n".join(
-                    f"- {s['partido']}: {s['mercado']} | prob. modelo {s['prob_modelo']}% "
-                    f"| cuota {s['cuota']} ({'real' if s.get('cuota_tipo')=='real' else 'estimada'}) "
-                    f"| EV {s['ev_pct']:+.1f}%"
-                    for s in mejor['selecciones']
-                )
-                prompt = (
-                    f"Eres un analista experto en apuestas deportivas.\n\n"
-                    f"COMBINADA DEL DÍA ({sel_nivel}):\n{rs}\n\n"
-                    f"Estadísticas: {mejor['n']} selecciones, cuota conjunta {mejor['cuota_conjunta']}x, "
-                    f"prob. conjunta {mejor['prob_conjunta']}%, EV {mejor['ev_pct']:+.1f}%.\n\n"
-                    f"Proporciona un análisis experto breve (máx 180 palabras): justificación de cada "
-                    f"selección con base en el modelo estadístico, nivel de confianza global, gestión "
-                    f"de bankroll recomendada y advertencias honestas sobre los riesgos. "
-                    f"En español, sin markdown."
-                )
-                with st.spinner("🤖 Consultando a Claude..."):
-                    try:
-                        r = requests.post(
-                            "https://api.anthropic.com/v1/messages",
-                            headers={"Content-Type": "application/json",
-                                     "x-api-key": api_key_anthropic,
-                                     "anthropic-version": "2023-06-01"},
-                            json={"model": "claude-sonnet-4-20250514", "max_tokens": 600,
-                                  "messages": [{"role": "user", "content": prompt}]},
-                            timeout=30
-                        )
-                        if r.status_code == 200:
-                            texto = r.json()['content'][0]['text']
-                            st.session_state['cdd_analisis_ia'] = {
-                                'texto': texto, 'nivel': sel_nivel
-                            }
-                        else:
-                            st.error(f"❌ Error API Claude {r.status_code}: {r.text[:300]}")
-                    except Exception as e:
-                        st.error(f"❌ Error conectando con Claude: {e}")
+            if st.button("🔍 Analizar esta combinada", use_container_width=True,
+                         type="primary", key='cdd_btn_analisis'):
+                combo_sel = opciones_analisis[sel_combo_key]
+                # Extraer partidos únicos de las selecciones
+                partidos_vistos = {}
+                for s in combo_sel['selecciones']:
+                    pid = s['partido']
+                    if pid not in partidos_vistos:
+                        partidos_vistos[pid] = s
 
-            # Mostrar resultado guardado en session_state (persiste entre reruns)
-            if 'cdd_analisis_ia' in st.session_state:
-                ai_data = st.session_state['cdd_analisis_ia']
-                st.markdown(f"""
-                <div class="ia-explicacion">
-                    <span class="ia-badge">🤖 Claude AI · {ai_data['nivel']}</span>
-                    <p style="margin:10px 0 0 0;white-space:pre-line;">{ai_data['texto']}</p>
-                </div>""", unsafe_allow_html=True)
+                resultados_analisis = {}
+                pb_an = st.progress(0)
+                items = list(partidos_vistos.items())
+                for i, (pid, s) in enumerate(items):
+                    pb_an.progress((i + 1) / len(items))
+                    local_bd = s.get('home_bd') or ''
+                    visit_bd = s.get('away_bd') or ''
+                    if local_bd and visit_bd:
+                        r = analizar_partido_para_combinada(
+                            df_total, local_bd, visit_bd, num_partidos, factor_decay
+                        )
+                        resultados_analisis[pid] = r
+                pb_an.empty()
+                st.session_state['cdd_analisis_estadistico'] = {
+                    'combo': combo_sel,
+                    'resultados': resultados_analisis,
+                    'label': sel_combo_key,
+                }
+
+        # Renderizar análisis guardado
+        if 'cdd_analisis_estadistico' in st.session_state:
+            an_data  = st.session_state['cdd_analisis_estadistico']
+            combo_an = an_data['combo']
+            res_an   = an_data['resultados']
+
+            st.markdown(f"""
+            <div style='background:#1a1a2e;border:2px solid #e94560;border-radius:12px;
+                        padding:14px 18px;margin:10px 0 18px 0;'>
+                <div style='font-size:12px;opacity:0.6;margin-bottom:6px;'>COMBINADA ANALIZADA</div>
+                <div style='font-size:15px;font-weight:bold;'>{an_data['label']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            for s in combo_an['selecciones']:
+                pid      = s['partido']
+                r        = res_an.get(pid)
+                sel_merc = s['mercado']
+                sel_prob = s['prob_modelo']
+                sel_cp   = "#2ecc71" if sel_prob >= 65 else "#f1c40f" if sel_prob >= 52 else "#e74c3c"
+                TIPO_ICO = {'1X2': '📊', 'O/U Goles': '⚽', 'BTTS': '🥅', 'Córners': '🚩', 'D.Oport.': '🔄'}
+                tipo_ico = TIPO_ICO.get(s.get('tipo', ''), '📌')
+
+                with st.expander(
+                    f"{tipo_ico} **{pid}** → {sel_merc} "
+                    f"| prob. {sel_prob}% | cuota {s['cuota']}",
+                    expanded=True
+                ):
+                    if not r:
+                        st.warning("⚠️ Sin datos históricos suficientes para este partido.")
+                        continue
+
+                    ml = r['media_local']
+                    mv = r['media_visit']
+                    mt = round(ml + mv, 2)
+
+                    # ── Selección destacada ──────────────────────────────────
+                    st.markdown(f"""
+                    <div style='background:#0f3460;border-radius:8px;padding:10px 14px;margin-bottom:12px;
+                                border-left:4px solid #e94560;'>
+                        <span style='font-size:12px;opacity:0.7;'>SELECCIÓN EN LA COMBINADA</span><br>
+                        <span style='font-size:18px;font-weight:bold;color:#4fc3f7;'>{tipo_ico} {sel_merc}</span>
+                        <span style='margin-left:12px;font-size:20px;font-weight:900;color:{sel_cp};'>{sel_prob}%</span>
+                        <span style='margin-left:10px;font-size:14px;color:#888;'>cuota ~{s['cuota']}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # ── Goles esperados ──────────────────────────────────────
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric(f"⚽ λ {r['local'][:12]}", f"{ml:.2f}", help="Goles esperados local (Dixon-Coles)")
+                    c2.metric(f"⚽ λ {r['visitante'][:12]}", f"{mv:.2f}", help="Goles esperados visitante")
+                    c3.metric("⚽ λ Total", f"{mt:.2f}", help="Media de goles totales esperados en el partido")
+
+                    st.markdown("---")
+
+                    # ── 1X2 ─────────────────────────────────────────────────
+                    st.markdown("**📊 Resultado 1X2**")
+                    rc1, rc2, rc3 = st.columns(3)
+                    for col, lbl, prob in [
+                        (rc1, f"🏠 Local ({r['local'][:10]})", r['p_win']),
+                        (rc2, "🤝 Empate",                     r['p_draw']),
+                        (rc3, f"🚀 Visita ({r['visitante'][:10]})", r['p_lose']),
+                    ]:
+                        color = "#2ecc71" if prob >= 50 else "#f1c40f" if prob >= 35 else "#888"
+                        col.markdown(
+                            f"<div style='text-align:center;'>"
+                            f"<div style='font-size:12px;color:#888;'>{lbl}</div>"
+                            f"<div style='font-size:24px;font-weight:900;color:{color};'>{prob}%</div>"
+                            f"</div>", unsafe_allow_html=True
+                        )
+
+                    st.markdown("---")
+
+                    # ── Over / Under goles ───────────────────────────────────
+                    st.markdown("**⚽ Más de / Menos de Goles**")
+                    lineas_g = [(1.5, 1), (2.5, 2), (3.5, 3), (4.5, 4)]
+                    go_cols  = st.columns(len(lineas_g))
+                    for col, (linea, k) in zip(go_cols, lineas_g):
+                        p_over  = round((1 - poisson.cdf(k, mt)) * 100, 1)
+                        p_under = round(poisson.cdf(k, mt) * 100, 1)
+                        col_o   = "#2ecc71" if p_over  >= 65 else "#f1c40f" if p_over  >= 45 else "#e74c3c"
+                        col_u   = "#2ecc71" if p_under >= 65 else "#f1c40f" if p_under >= 45 else "#e74c3c"
+                        col.markdown(
+                            f"<div style='background:#1a1a2e;border-radius:8px;padding:8px;text-align:center;'>"
+                            f"<div style='font-size:12px;color:#888;font-weight:bold;'>±{linea}</div>"
+                            f"<div style='font-size:15px;font-weight:bold;color:{col_o};'>+{linea}: {p_over}%</div>"
+                            f"<div style='font-size:15px;font-weight:bold;color:{col_u};'>-{linea}: {p_under}%</div>"
+                            f"</div>", unsafe_allow_html=True
+                        )
+
+                    st.markdown("---")
+
+                    # ── BTTS ─────────────────────────────────────────────────
+                    st.markdown("**🥅 Ambos Marcan**")
+                    pb_si  = r['prob_ambos']
+                    pb_no  = round(100 - pb_si, 1)
+                    col_si = "#2ecc71" if pb_si >= 55 else "#f1c40f" if pb_si >= 40 else "#e74c3c"
+                    col_no = "#2ecc71" if pb_no >= 55 else "#f1c40f" if pb_no >= 40 else "#e74c3c"
+                    bm1, bm2 = st.columns(2)
+                    bm1.markdown(
+                        f"<div style='text-align:center;'>"
+                        f"<div style='font-size:13px;color:#888;'>✅ SÍ marcan ambos</div>"
+                        f"<div style='font-size:28px;font-weight:900;color:{col_si};'>{pb_si}%</div>"
+                        f"</div>", unsafe_allow_html=True
+                    )
+                    bm2.markdown(
+                        f"<div style='text-align:center;'>"
+                        f"<div style='font-size:13px;color:#888;'>❌ NO marcan ambos</div>"
+                        f"<div style='font-size:28px;font-weight:900;color:{col_no};'>{pb_no}%</div>"
+                        f"</div>", unsafe_allow_html=True
+                    )
+
+                    # ── Córners ──────────────────────────────────────────────
+                    ct = r.get('corners_total', 0)
+                    if ct > 0:
+                        st.markdown("---")
+                        st.markdown(f"**🚩 Córners — Media esperada: {ct:.1f}**")
+                        lineas_c = [(7.5, 7), (8.5, 8), (9.5, 9), (10.5, 10)]
+                        cc_cols  = st.columns(len(lineas_c))
+                        for col, (linea, k) in zip(cc_cols, lineas_c):
+                            p_over  = round((1 - poisson.cdf(k, ct)) * 100, 1)
+                            p_under = round(poisson.cdf(k, ct) * 100, 1)
+                            col_o   = "#2ecc71" if p_over  >= 65 else "#f1c40f" if p_over  >= 45 else "#e74c3c"
+                            col_u   = "#2ecc71" if p_under >= 65 else "#f1c40f" if p_under >= 45 else "#e74c3c"
+                            col.markdown(
+                                f"<div style='background:#1a1a2e;border-radius:8px;padding:8px;text-align:center;'>"
+                                f"<div style='font-size:12px;color:#888;font-weight:bold;'>±{linea}c</div>"
+                                f"<div style='font-size:15px;font-weight:bold;color:{col_o};'>+{linea}: {p_over}%</div>"
+                                f"<div style='font-size:15px;font-weight:bold;color:{col_u};'>-{linea}: {p_under}%</div>"
+                                f"</div>", unsafe_allow_html=True
+                            )
+
+                    # ── Nota modelo ──────────────────────────────────────────
+                    st.caption(f"🤖 Modelo: **{r['modo']}** · "
+                               f"λ local: {ml:.2f} · λ visitante: {mv:.2f}")
 
     st.divider()
     st.markdown("""
@@ -2100,62 +2222,57 @@ def main():
         st.divider()
         st.subheader("🔑 APIs")
 
-        # ── Carga inicial de keys (solo una vez por sesión) ──────────────────
+        # ── Carga inicial: query param → archivo personal → vacío ───────────────
         if 'config_cargado' not in st.session_state:
-            cfg = _cargar_keys_usuario()
-            st.session_state['odds_api_key']      = cfg.get('odds_api_key', '')
-            st.session_state['anthropic_api_key'] = cfg.get('anthropic_api_key', '')
-            st.session_state['config_cargado']    = True
+            raw_param = st.query_params.get('ok', '')
+            if raw_param:
+                try:
+                    clave_cargada = _b64.urlsafe_b64decode(raw_param.encode()).decode()
+                except Exception:
+                    clave_cargada = ''
+            else:
+                cfg = _cargar_keys_usuario()
+                clave_cargada = cfg.get('odds_api_key', '')
+
+            st.session_state['odds_api_key']   = clave_cargada
+            st.session_state['odds_key_input'] = clave_cargada   # pre-rellena el widget
+            st.session_state['config_cargado'] = True
 
         odds_input = st.text_input(
             "The Odds API Key",
-            value=st.session_state.get('odds_api_key', ''),
             type="password",
             help="theoddsapi.com — 500 req/mes gratis",
-            key="odds_key_input"
-        )
-        anth_input = st.text_input(
-            "Anthropic API Key",
-            value=st.session_state.get('anthropic_api_key', ''),
-            type="password",
-            help="Para análisis IA en combinadas",
-            key="anth_key_input"
+            key="odds_key_input"          # Streamlit lee/escribe desde session_state
         )
 
-        # Info del sistema de tokens
-        token_actual = _get_or_create_user_token()
         st.caption(
-            f"🔒 Tus keys están vinculadas a tu perfil personal "
-            f"(token: `{token_actual[:8]}…`). "
-            f"**Guarda la URL de esta página** (con el parámetro `?ut=...`) "
-            f"para recuperarlas la próxima vez. "
-            f"Cada usuario tiene su propio perfil separado."
+            "🔒 Pulsa **Guardar key** y después añade esta página a favoritos "
+            "(la URL incluirá tu key cifrada). La próxima vez aparecerá automáticamente."
         )
 
         col_save, col_clear = st.columns(2)
         with col_save:
-            if st.button("💾 Guardar keys", use_container_width=True, key="save_keys_btn"):
-                st.session_state['odds_api_key']      = odds_input.strip()
-                st.session_state['anthropic_api_key'] = anth_input.strip()
-                ok = _guardar_keys_usuario(odds_input, anth_input)
-                if ok:
-                    st.success("✅ Keys guardadas en tu perfil")
-                else:
-                    st.warning("⚠️ Guardadas solo en sesión (error de escritura)")
+            if st.button("💾 Guardar key", use_container_width=True, key="save_keys_btn"):
+                key_val = st.session_state.get('odds_key_input', '').strip()
+                st.session_state['odds_api_key'] = key_val
+                # Incrusta la key codificada en la URL (persiste en el bookmark)
+                encoded = _b64.urlsafe_b64encode(key_val.encode()).decode() if key_val else ''
+                st.query_params['ok'] = encoded
+                _guardar_keys_usuario(key_val, '')   # backup en archivo
+                st.success("✅ Key guardada. Añade esta URL a favoritos para recuperarla siempre.")
         with col_clear:
-            if st.button("🗑️ Borrar keys", use_container_width=True, key="clear_keys_btn"):
-                st.session_state['odds_api_key']      = ''
-                st.session_state['anthropic_api_key'] = ''
+            if st.button("🗑️ Borrar key", use_container_width=True, key="clear_keys_btn"):
+                st.session_state['odds_api_key']   = ''
+                st.session_state['odds_key_input'] = ''
+                st.query_params.pop('ok', None)
                 _borrar_keys_usuario()
                 st.rerun()
 
         api_key_odds      = st.session_state.get('odds_api_key', '')
-        api_key_anthropic = st.session_state.get('anthropic_api_key', '')
+        api_key_anthropic = ''
 
         if api_key_odds:
             st.success("⚡ Odds API configurada ✓")
-        if api_key_anthropic:
-            st.success("🤖 Claude API configurada ✓")
 
         st.divider()
         st.header("⭐ FAVORITOS")
